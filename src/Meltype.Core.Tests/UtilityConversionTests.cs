@@ -300,4 +300,23 @@ internal static class UtilityConversionTests
         Choose(new Keyboard(history: history, predictor: new Predictor(phrases, null, history), now: () => Tuesday), "raishuunokinnyoubi", "2026年11月20日(金)");
         Assert.True(history.Get("らいしゅうのきんようび") is null && !phrases.StartingWith("らいしゅう").Any(), "相対日付は学習しない");
     }
+
+    [Test]
+    public static void EraConversion_ConvertsWesternAndJapaneseYears()
+    {
+        Assert.Equal("平成7年|今年31歳（30〜31歳）", string.Join("|", EraConversion.Candidates("1995ねん", Tuesday)));
+        Assert.Equal("令和元年|平成31年|今年7歳（6〜7歳）", string.Join("|", EraConversion.Candidates("2019ねん", Tuesday)));
+        Assert.Equal("1995年|今年31歳（30〜31歳）", string.Join("|", EraConversion.Candidates("へいせい7ねん", Tuesday)));
+        Assert.Equal("2019年|今年7歳（6〜7歳）", string.Join("|", EraConversion.Candidates("れいわがんねん", Tuesday)));
+        Assert.Equal("2026年|0歳", string.Join("|", EraConversion.Candidates("れいわ8ねん", Tuesday)));
+        Assert.Equal(0, EraConversion.Candidates("へいせい32ねん", Tuesday).Count, "ありえない和暦は出さない");
+
+        var history = new ConversionHistory(null);
+        var phrases = new PhraseHistory(null);
+        var k = new Keyboard(history: history, predictor: new Predictor(phrases, null, history), now: () => Tuesday);
+        k.Type("1995nenn ");
+        Assert.True(k.Host.View!.Candidates.Contains("平成7年") && k.Host.View.Candidates.Contains("今年31歳（30〜31歳）"), string.Join(",", k.Host.View.Candidates));
+        Choose(new Keyboard(history: history, predictor: new Predictor(phrases, null, history), now: () => Tuesday), "heisei7nenn", "1995年");
+        Assert.True(history.Get("へいせい7ねん") is null && !phrases.StartingWith("へいせい").Any(), "西暦・和暦変換は学習しない");
+    }
 }
