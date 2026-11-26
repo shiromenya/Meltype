@@ -14,6 +14,12 @@ internal sealed partial class RelativeDateConversion : IUtilityConversion
     [GeneratedRegex(@"^(?<n>[0-9０-９]{1,4})(?<unit>にち|しゅうかん|かげつ)(?<dir>ご|まえ)$")]
     private static partial Regex NumericRelative();
 
+    [GeneratedRegex(@"^(?<h>[0-9０-９]{1,4})じかん(?:(?<half>はん)|(?<m>[0-9０-９]{1,3})(?:ふん|ぷん))?(?<dir>ご|まえ)$")]
+    private static partial Regex NumericHourRelative();
+
+    [GeneratedRegex(@"^(?<m>[0-9０-９]{1,4})(?:ふん|ぷん)(?<dir>ご|まえ)$")]
+    private static partial Regex NumericMinuteRelative();
+
     [GeneratedRegex(@"^(?<week>せんせんしゅう|せんしゅう|こんしゅう|さらいしゅう|らいしゅう)(?:の)?(?<day>げつ|か|すい|もく|きん|ど|にち)よう(?:び)?$")]
     private static partial Regex WeekAndDay();
 
@@ -43,8 +49,34 @@ internal sealed partial class RelativeDateConversion : IUtilityConversion
     public UtilityCandidates? Convert(UtilityInput input)
     {
         if (input.Reading is not { } reading) return null;
-        if (ResolveDate(reading, input.Context.Now) is not { } target) return null;
-        return new(TodayConversion.DateCandidates(target), UtilityPlacement.Append);
+        if (ResolveDate(reading, input.Context.Now) is { } targetDate)
+            return new(TodayConversion.DateCandidates(targetDate), UtilityPlacement.Append);
+        if (ResolveTime(reading, input.Context.Now) is { } targetTime)
+            return new(NowConversion.Times(targetTime), UtilityPlacement.Append);
+        return null;
+    }
+
+    internal static DateTime? ResolveTime(string reading, DateTime now)
+    {
+        if (NumericHourRelative().Match(reading) is { Success: true } hourMatch)
+        {
+            var hours = UtilityConversions.Number(hourMatch.Groups["h"].Value);
+            var minutes = hourMatch.Groups["half"].Success ? 30
+                : hourMatch.Groups["m"].Success ? UtilityConversions.Number(hourMatch.Groups["m"].Value) : 0;
+            if (hours > 8760 || minutes > 59 || (hours == 0 && minutes == 0)) return null;
+            var sign = hourMatch.Groups["dir"].Value == "ご" ? 1 : -1;
+            return now.AddMinutes(sign * (hours * 60 + minutes));
+        }
+
+        if (NumericMinuteRelative().Match(reading) is { Success: true } minuteMatch)
+        {
+            var minutes = UtilityConversions.Number(minuteMatch.Groups["m"].Value);
+            if (minutes is < 1 or > 10080) return null;
+            var sign = minuteMatch.Groups["dir"].Value == "ご" ? 1 : -1;
+            return now.AddMinutes(sign * minutes);
+        }
+
+        return null;
     }
 
     internal static DateTime? ResolveDate(string reading, DateTime now)

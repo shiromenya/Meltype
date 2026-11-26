@@ -299,6 +299,18 @@ internal static class UtilityConversionTests
         var phrases = new PhraseHistory(null);
         Choose(new Keyboard(history: history, predictor: new Predictor(phrases, null, history), now: () => Tuesday), "raishuunokinnyoubi", "2026年11月20日(金)");
         Assert.True(history.Get("らいしゅうのきんようび") is null && !phrases.StartingWith("らいしゅう").Any(), "相対日付は学習しない");
+
+        // 相対時刻 (Tuesday = 2026-11-10 20:05)
+        Assert.Equal(new DateTime(2026, 11, 10, 20, 35, 0), RelativeDateConversion.ResolveTime("30ぷんご", Tuesday));
+        Assert.Equal(new DateTime(2026, 11, 10, 19, 50, 0), RelativeDateConversion.ResolveTime("15ふんまえ", Tuesday));
+        Assert.Equal(new DateTime(2026, 11, 10, 22, 5, 0), RelativeDateConversion.ResolveTime("2じかんご", Tuesday));
+        Assert.Equal(new DateTime(2026, 11, 10, 21, 35, 0), RelativeDateConversion.ResolveTime("1じかんはんご", Tuesday));
+        Assert.Equal(new DateTime(2026, 11, 10, 18, 35, 0), RelativeDateConversion.ResolveTime("1じかん30ぷんまえ", Tuesday));
+        Assert.Equal(new DateTime(2026, 11, 11, 0, 5, 0), RelativeDateConversion.ResolveTime("4じかんご", Tuesday));
+        Assert.Equal(null, RelativeDateConversion.ResolveTime("0ぷんご", Tuesday));
+        var timeK = new Keyboard(now: () => Tuesday);
+        timeK.Type("30punngo ");
+        Assert.True(timeK.Host.View!.Candidates.Contains("20:35") && timeK.Host.View.Candidates.Contains("20時35分"), string.Join(",", timeK.Host.View.Candidates));
     }
 
     [Test]

@@ -18,7 +18,7 @@ internal sealed class NowConversion : IUtilityConversion
         return new(times, UtilityPlacement.Append);
     }
 
-    private static string[] Times(DateTime now)
+    internal static string[] Times(DateTime now)
     {
         var day = UtilityConversions.WeekDays[(int)now.DayOfWeek];
         var date = $"{now.Year}年{now.Month}月{now.Day}日";
