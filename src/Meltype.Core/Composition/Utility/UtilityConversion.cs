@@ -81,6 +81,7 @@ internal static class UtilityConversions
         new GitHubIssueConversion(),
         new TypedDateConversion(),
         new KanjiNumberConversion(),
+        new BaseConversion(),
         new TodayConversion(),
         new NowConversion(),
         new ClockConversion(),

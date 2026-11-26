@@ -272,4 +272,25 @@ internal static class UtilityConversionTests
         Assert.Equal("端末", VersionConversion.LinuxFrontOf(["/usr/bin/python3", "/home/u/Meltype-tty/meltype-tty"]));
         Assert.Equal(null, VersionConversion.LinuxFrontOf(["python3", "src/Meltype.Core.CApi/tests/test-native-boundaries.py", "libMeltypeNative.so"]));
     }
+
+    [Test]
+    public static void BaseConversion_ConvertsDigitsToBases2Through16()
+    {
+        var candidates255 = BaseConversion.Candidates("255");
+        Assert.Equal(14, candidates255.Count, "10進数を除く 2〜16 進数の 14 個が出る");
+        Assert.Equal("11111111(2進数)", candidates255[0]);
+        Assert.True(candidates255.Contains("377(8進数)") && candidates255.Contains("FF(16進数)"), string.Join(",", candidates255));
+        Assert.Equal("101010(2進数)", BaseConversion.Candidates("４２")[0], "全角数字も変換できる");
+        Assert.Equal(0, BaseConversion.Candidates("001").Count, "先頭 0 埋めは変換しない");
+        Assert.Equal(0, BaseConversion.Candidates("1").Count, "0・1 は変換しない");
+        Assert.Equal(0, BaseConversion.Candidates("255a").Count, "数字以外は変換しない");
+
+        var history = new ConversionHistory(null);
+        var phrases = new PhraseHistory(null);
+        var k = new Keyboard(history: history, predictor: new Predictor(phrases, null, history));
+        k.Type("255 ");
+        Assert.True(k.Host.View!.Candidates.Contains("11111111(2進数)") && k.Host.View.Candidates.Contains("FF(16進数)"), string.Join(",", k.Host.View.Candidates));
+        Choose(new Keyboard(history: history, predictor: new Predictor(phrases, null, history)), "255", "FF(16進数)");
+        Assert.True(history.Get("255") is null && !phrases.StartingWith("255").Any(), "n進数変換は学習しない");
+    }
 }
