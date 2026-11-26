@@ -272,4 +272,32 @@ internal static class UtilityConversionTests
         Assert.Equal("端末", VersionConversion.LinuxFrontOf(["/usr/bin/python3", "/home/u/Meltype-tty/meltype-tty"]));
         Assert.Equal(null, VersionConversion.LinuxFrontOf(["python3", "src/Meltype.Core.CApi/tests/test-native-boundaries.py", "libMeltypeNative.so"]));
     }
+
+    [Test]
+    public static void RelativeDate_ConvertsDaysWeeksAndMonthEnds()
+    {
+        // Tuesday = 2026-11-10 (火)
+        var k = new Keyboard(now: () => Tuesday);
+        k.Type("3nitigo ");
+        Assert.True(k.Host.View!.Candidates.Contains("2026年11月13日(金)"), string.Join(",", k.Host.View.Candidates));
+
+        // 曜日指定 (月曜始まり: 2026-11-10(火) の週の月曜は 11/09)
+        Assert.Equal(new DateTime(2026, 11, 20), RelativeDateConversion.ResolveDate("らいしゅうのきんようび", Tuesday));
+        Assert.Equal(new DateTime(2026, 11, 15), RelativeDateConversion.ResolveDate("こんしゅうのにちようび", Tuesday));
+        Assert.Equal(new DateTime(2026, 11, 2), RelativeDateConversion.ResolveDate("せんしゅうのげつようび", Tuesday));
+        Assert.Equal(new DateTime(2026, 11, 13), RelativeDateConversion.ResolveDate("みっかご", Tuesday));
+        Assert.Equal(new DateTime(2026, 10, 27), RelativeDateConversion.ResolveDate("2しゅうかんまえ", Tuesday));
+        Assert.Equal(new DateTime(2026, 12, 10), RelativeDateConversion.ResolveDate("1かげつご", Tuesday));
+        Assert.Equal(new DateTime(2026, 11, 30), RelativeDateConversion.ResolveDate("こんげつまつ", Tuesday));
+        Assert.Equal(new DateTime(2026, 12, 31), RelativeDateConversion.ResolveDate("らいげつまつ", Tuesday));
+        Assert.Equal(new DateTime(2026, 10, 31), RelativeDateConversion.ResolveDate("せんげつまつ", Tuesday));
+
+        // 範囲外や文の一部は出さない・学習しない
+        Assert.Equal(null, RelativeDateConversion.ResolveDate("0にちご", Tuesday));
+        Assert.Equal(null, RelativeDateConversion.ResolveDate("あしたは", Tuesday));
+        var history = new ConversionHistory(null);
+        var phrases = new PhraseHistory(null);
+        Choose(new Keyboard(history: history, predictor: new Predictor(phrases, null, history), now: () => Tuesday), "raishuunokinnyoubi", "2026年11月20日(金)");
+        Assert.True(history.Get("らいしゅうのきんようび") is null && !phrases.StartingWith("らいしゅう").Any(), "相対日付は学習しない");
+    }
 }

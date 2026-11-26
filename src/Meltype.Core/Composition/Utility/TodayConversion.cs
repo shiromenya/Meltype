@@ -10,15 +10,16 @@ namespace Meltype.Composition.Utility;
 /// </summary>
 internal sealed class TodayConversion : IUtilityConversion
 {
-    public UtilityCandidates? Convert(UtilityInput input)
+    public UtilityCandidates? Convert(UtilityInput input) =>
+        input.Reading == "きょう" ? new(DateCandidates(input.Context.Now), UtilityPlacement.Append) : null;
+
+    internal static string[] DateCandidates(DateTime target)
     {
-        if (input.Reading != "きょう") return null;
-        var now = input.Context.Now;
-        var day = UtilityConversions.WeekDays[(int)now.DayOfWeek];
-        var date = $"{now.Year}年{now.Month}月{now.Day}日";
-        var monthDay = $"{now.Month}月{now.Day}日";
-        var slashDate = $"{now.Year:D4}/{now.Month:D2}/{now.Day:D2}";
-        return new([date, $"{date}({day})", monthDay, $"{monthDay}({day})", slashDate, $"{slashDate}({day})", $"{now.Month}/{now.Day}({day})",
-            $"{now.Year:D4}-{now.Month:D2}-{now.Day:D2}", $"{day}曜日", $"{now.Year:D4}{now.Month:D2}{now.Day:D2}"], UtilityPlacement.Append);
+        var day = UtilityConversions.WeekDays[(int)target.DayOfWeek];
+        var date = $"{target.Year}年{target.Month}月{target.Day}日";
+        var monthDay = $"{target.Month}月{target.Day}日";
+        var slashDate = $"{target.Year:D4}/{target.Month:D2}/{target.Day:D2}";
+        return [date, $"{date}({day})", monthDay, $"{monthDay}({day})", slashDate, $"{slashDate}({day})", $"{target.Month}/{target.Day}({day})",
+            $"{target.Year:D4}-{target.Month:D2}-{target.Day:D2}", $"{day}曜日", $"{target.Year:D4}{target.Month:D2}{target.Day:D2}"];
     }
 }

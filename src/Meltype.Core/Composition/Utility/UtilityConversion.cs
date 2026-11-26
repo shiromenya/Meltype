@@ -82,6 +82,7 @@ internal static class UtilityConversions
         new TypedDateConversion(),
         new KanjiNumberConversion(),
         new TodayConversion(),
+        new RelativeDateConversion(),
         new NowConversion(),
         new ClockConversion(),
         new SeasonalGreetingConversion(),
