@@ -164,6 +164,18 @@ public enum InputMode
     [Description("Meltype IME (入力欄に直接入力)")] Tsf = 2,
 }
 
+/// <summary>ローカル LLM 翻訳モードの翻訳先言語。</summary>
+public enum TranslationTarget
+{
+    [Description("OFF")] Off,
+    [Description("英語 (English)")] English,
+    [Description("中国語 (簡体字)")] Chinese,
+    [Description("韓国語 (한국어)")] Korean,
+    [Description("フランス語 (Français)")] French,
+    [Description("スペイン語 (Español)")] Spanish,
+    [Description("ドイツ語 (Deutsch)")] German,
+}
+
 [TypeConverter(typeof(ExpandableObjectConverter))]
 public sealed class AppRule
 {
@@ -445,6 +457,14 @@ public sealed class Settings
     [Category("5. 変換"), DisplayName("Zenzai: 使う GPU"), Platforms(Platform.Windows),
      Description("GPU 版 (Vulkan・CUDA) の llama-server で、計算に使う GPU の名前 (例: Vulkan0)。llama-server の --device に渡し、GPU に載せる量は llama-server が空いているメモリに合わせて決めます。空なら CPU だけで計算します (既定)。名前は llama-server --list-devices で確かめられます。変えると llama-server を起動し直します。")]
     public string ZenzaiDevice { get; set; } = "";
+
+    [Category("5. 変換"), DisplayName("翻訳モード"), Platforms(Platform.Windows),
+     Description("OFF 以外にすると、Space で変換した日本語文を指定した言語へローカル LLM で翻訳した候補を先頭に出します (元の日本語も候補に残るので Space で戻せます)。OFF にするとモデルを解放します。既定は OFF です。")]
+    public TranslationTarget TranslationMode { get; set; } = TranslationTarget.Off;
+
+    [Category("5. 変換"), DisplayName("翻訳: モデル (GGUF) の場所"), Platforms(Platform.Windows),
+     Description("翻訳モードで使う GGUF モデルのファイルパス。空なら既定のモデル (CAT-Translate-0.8B Q4_K_M) を初回 ON 時に data/models へ取得します。多言語モデルに差し替えると英語以外の精度も上がります。")]
+    public string TranslationModelPath { get; set; } = "";
 
     [Category("6. 候補"), DisplayName("予測変換の候補"),
      Description("打っている途中に、続きの候補を変換ボックスの下に出します (前に確定した語句・ユーザー辞書・選び直した変換の学習・よく使うあいさつ・英単語の続き)。Tab / Shift+Tab で選んで Enter で確定します。確定した語句は %LOCALAPPDATA%\\Meltype\\phrases.txt に暗号化せずに覚え (この PC の外には送りません)、「学習データをリセット」で消えます。")]

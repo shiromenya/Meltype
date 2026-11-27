@@ -304,7 +304,7 @@ internal static class CompositionTests
             Func<string, IReadOnlyList<string>>? moreCandidates = null, UserDictionary? userDictionary = null, LanguageMemory? languages = null,
             TranslationDictionary? translations = null, TranslationHistory? translationHistory = null, Predictor? predictor = null,
             Func<DateTime>? now = null, Meltype.Config.TypedKeysStyle typedKeys = Meltype.Config.TypedKeysStyle.Off, bool tabConversion = false, bool englishNamePredictions = false,
-            CompositionDetector? detector = null)
+            CompositionDetector? detector = null, ITextTranslator? textTranslator = null)
         {
             detector ??= Detector;
             Settings = new Meltype.Config.Settings
@@ -331,6 +331,7 @@ internal static class CompositionTests
                 RomajiTypos = Typos,
                 GitHubTitles = () => GitHubTitles,
                 Predictor = predictor,
+                TextTranslator = textTranslator,
                 Now = now ?? (() => DateTime.Now),
             };
             MeltypeRuntime.Connect(detector, services);

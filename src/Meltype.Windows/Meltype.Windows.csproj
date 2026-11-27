@@ -23,6 +23,10 @@
     <ProjectReference Include="..\Meltype.Core\Meltype.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="LLamaSharp" Version="0.30.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.30.0" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- 今の版のリリースノート (docs/release-notes/<版>.md) を配布物の release-notes に入れる。更新したあとの初めての起動で見せる (issue #1207) -->
     <None Include="..\..\docs\release-notes\$(Version).md" Condition="Exists('..\..\docs\release-notes\$(Version).md')" Link="release-notes\$(Version).md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

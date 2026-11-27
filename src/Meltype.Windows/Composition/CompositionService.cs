@@ -31,6 +31,7 @@ internal sealed class CompositionService : IDisposable
         _settings = settings;
         // Mozc (同梱の mozc\meltype_mozc_helper.exe) と Zenzai (zenzai\)
         runtime.StartConverter(AppContext.BaseDirectory);
+        runtime.SetTextTranslator(new Translation.LocalLlmTranslator(runtime.DataDirectory));
         runtime.ConversionReady += () => ConversionReady?.Invoke();
     }
 

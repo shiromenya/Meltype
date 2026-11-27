@@ -43,6 +43,11 @@ public sealed class MeltypeRuntime : IDisposable
         {
             Diagnostics.Log.SetFileOutput(loaded.FileLog ? Path.Combine(dataDirectory, "meltype.log") : null);
             Diagnostics.Log.RecordText = loaded.LogTypedText;
+            if (_textTranslator is { } translator)
+            {
+                if (loaded.TranslationMode == TranslationTarget.Off) translator.StopIfUnused();
+                else translator.EnsureStarted(loaded.TranslationModelPath);
+            }
             SettingsChanged?.Invoke(loaded);
         });
         // ログの設定を、入力の前に入れる
@@ -132,15 +137,30 @@ public sealed class MeltypeRuntime : IDisposable
     }
 
     private HybridConverter? _converter;
+    private ITextTranslator? _textTranslator;
+    private event Action? _conversionReady;
 
     private HybridConverter Converter => _converter ?? throw new InvalidOperationException("変換エンジンを先に用意してください (StartConverter)");
 
     /// <summary>変換エンジンの答えが後から届いた (入力欄に refresh を送る)。ワーカーのスレッドで呼ぶ。<see cref="StartConverter"/> の後に登録する。</summary>
     public event Action? ConversionReady
     {
-        add => Converter.ResultReady += value;
-        remove => Converter.ResultReady -= value;
+        add => _conversionReady += value;
+        remove => _conversionReady -= value;
     }
+
+    /// <summary>ローカル LLM 翻訳サービスを登録する (Windows 側など)。</summary>
+    public void SetTextTranslator(ITextTranslator translator)
+    {
+        _textTranslator = translator;
+        translator.TranslationReady += () => _conversionReady?.Invoke();
+        if (Settings.Current is { TranslationMode: not TranslationTarget.Off } s)
+            translator.EnsureStarted(s.TranslationModelPath);
+    }
+
+    /// <summary>翻訳モードの現在の状態 (トレイメニュー表示用)。OFF なら null。</summary>
+    public string? TextTranslatorStatus() =>
+        Settings.Current.TranslationMode != TranslationTarget.Off ? _textTranslator?.Status ?? "準備中" : null;
 
     /// <summary>
     /// 入力欄 1 つの本体を作る。辞書・学習データ・変換エンジンは、ほかの入力欄と共有する。
@@ -193,6 +213,7 @@ public sealed class MeltypeRuntime : IDisposable
         var converter = new HybridConverter(mozc, () => Settings.Current is { UseZenzai: true } settings
             ? zenzai.Get(ZenzaiBundle.ServerPath(settings.ZenzaiServerPath, appDirectory), ZenzaiBundle.ModelPath(settings.ZenzaiModelPath, appDirectory), settings.ZenzaiDevice)
             : zenzai.Get("", ""));
+        converter.ResultReady += () => _conversionReady?.Invoke();
         ForgetZenzaiHallucinations(converter);
         ConnectUserDictionary(converter);
         return converter;
@@ -261,6 +282,7 @@ public sealed class MeltypeRuntime : IDisposable
             UserDictionary = UserDictionary,
             Predictor = new Predictor(Phrases, () => UserDictionary.Words.Select(w => (w.Reading, w.Word)), History),
             MoreCandidates = candidates,
+            TextTranslator = _textTranslator,
         };
         return new SessionParts(Detector, converter, services)
         {
@@ -286,6 +308,7 @@ public sealed class MeltypeRuntime : IDisposable
     {
         _settingsCheck.Dispose();
         _nowPlaying?.Dispose();
+        _textTranslator?.Dispose();
         _keyCountSave?.Dispose();
         _keyCounter?.Save();
         foreach (var converter in _converters) converter.Dispose();

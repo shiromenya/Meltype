@@ -18,6 +18,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _statusItem;
     // Zenzai の状態 (「Zenzai を使う」が ON のときだけ出す。issue #1152)
     private readonly ToolStripMenuItem _zenzaiItem = new() { Enabled = false, Visible = false };
+    private readonly ToolStripMenuItem _translationItem = new() { Enabled = false, Visible = false };
     private readonly ToolStripMenuItem _enabledItem;
     private readonly HotkeyWindow _hotkey;
     private readonly HotkeyWindow _registerHotkey;
@@ -85,6 +86,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _tsfModeItem = new ToolStripMenuItem("Meltype IME (入力欄に直接入力)", null, (_, _) => SelectTsf());
         menu.Items.Add(_statusItem);
         menu.Items.Add(_zenzaiItem);
+        menu.Items.Add(_translationItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_enabledItem);
         if (!AppPaths.IsPortable) menu.Items.Add(_tsfModeItem);
@@ -553,6 +555,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var zenzai = _composition.Runtime.ZenzaiStatus();
         _zenzaiItem.Visible = zenzai is not null;
         if (zenzai is not null) _zenzaiItem.Text = $"Zenzai: {zenzai}";
+        var translation = _composition.Runtime.TextTranslatorStatus();
+        _translationItem.Visible = translation is not null;
+        if (translation is not null) _translationItem.Text = $"翻訳 ({Engine.TranslationTargetExtensions.ShortLabel(settings.TranslationMode)}): {translation}";
         var tip = $"Meltype — {status}";
         _tray.Text = tip.Length > 63 ? tip[..63] : tip;
     }

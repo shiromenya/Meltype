@@ -37,6 +37,33 @@ internal static class CompositionConversion
         text.Any(char.IsAsciiLetter) && text.All(c => c is >= ' ' and <= '~') && text.Trim().Length > 0;
 
     /// <summary>
+    /// 翻訳モードが ON のとき、選択済みの日本語文をキャッシュ済み翻訳で直接候補に出す (未キャッシュならバックグラウンド翻訳を予約して false を返す)。
+    /// </summary>
+    internal static bool StartTranslationReconversion(CompositionState state, CompositionEnv env, ReconversionSelection selection)
+    {
+        if (env.Settings.TranslationMode == Config.TranslationTarget.Off || env.Services.TextTranslator is not { } translator)
+            return false;
+        if (selection.Text.Length < 2 || selection.Text.All(c => c < 0x80) ||
+            selection.Text.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
+            selection.Text.Contains("https://", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (translator.TranslateOrRequest(selection.Text, env.Settings.TranslationMode, env.Settings.TranslationModelPath) is not { } translated)
+            return false;
+        var input = CompositionLifecycle.Begin(state, env, reconversion: selection);
+        input.Text = CompositionText.AppendReading(input.Text, selection.Reading) with { Mode = DisplayMode.Hiragana };
+        var clause = new Clause(selection.Reading, false, [translated, selection.Text])
+        {
+            LlmTranslationText = translated,
+            LlmTranslationSource = selection.Text,
+            Expanded = true,
+            Fixed = true,
+        };
+        clause.NotLearned.Add(translated);
+        CompositionLifecycle.Convert(state, input, new Conversion([clause], ConversionTrigger.Other, preferJapanese: true));
+        return true;
+    }
+
+    /// <summary>
     /// ローマ字のまま入った文を選んで変換キーを押したとき (Meltype が止まっていた・ターミナルで打った: issue #288)。
     /// Meltype の判定で日本語の所だけを日本語にした文を候補として見せ、Enter で選んだ文字と置き換える。
     /// 候補は 日本語にした文 → 選んだままの文。日本語にする所が無ければ何もしない。
@@ -147,7 +174,53 @@ internal static class CompositionConversion
             if (input.KeptChoices.TryGetValue(clause.Reading, out var kept) && clause.Candidates.Contains(kept)) Prefer(clause, kept);
         // 打ち始めの ・ は、Space で / にする。
         if (CompositionText.IsSlashAtStart(CompositionText.Read(input.Text, env)) && clauses is [var slash]) Prefer(slash, "/");
+        if (env.Settings.TranslationMode != Config.TranslationTarget.Off && utility is null)
+            clauses = ApplyTextTranslation(input, env, clauses);
         return new Conversion(clauses, trigger, preferJapanese) { Selected = InitialClause(env, clauses.Count) };
+    }
+
+    /// <summary>
+    /// 翻訳モードが ON のとき、変換結果の日本語文を非同期で翻訳する。
+    /// 訳文がキャッシュにあれば先頭に差し込み、元の日本語を第 2 候補に残す。訳文は学習しない。
+    /// </summary>
+    private static List<Clause> ApplyTextTranslation(CompositionInput input, CompositionEnv env, List<Clause> clauses)
+    {
+        if (env.Services.TextTranslator is not { } translator || clauses.All(c => c.IsEnglish)) return clauses;
+        var original = string.Concat(clauses.Select(c => c.Text));
+        if (original.Length < 2 || original.All(c => c < 0x80) ||
+            original.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
+            original.Contains("https://", StringComparison.OrdinalIgnoreCase))
+            return clauses;
+        if (translator.TranslateOrRequest(original, env.Settings.TranslationMode, env.Settings.TranslationModelPath) is not { } translated)
+            return clauses;
+
+        if (clauses is [var single] && single.Alternatives is null)
+        {
+            single.Candidates.Remove(translated);
+            single.Candidates.Insert(0, translated);
+            single.Index = 0;
+            single.LlmTranslationText = translated;
+            single.LlmTranslationSource = original;
+            single.NotLearned.Add(translated);
+            single.Leading = Math.Max(single.Leading, 1);
+            return clauses;
+        }
+        var reading = CompositionText.AllKana(CompositionText.Read(input.Text, env), env, final: true);
+        var alternatives = clauses is [{ Alternatives: { } existing }]
+            ? new Dictionary<string, List<Clause>>(existing, StringComparer.Ordinal)
+            : new Dictionary<string, List<Clause>>(StringComparer.Ordinal) { [original] = clauses };
+        var hasZenzai = clauses.Any(c => c.ZenzaiText is { } z && c.Text == z);
+        var whole = new Clause(reading, false, Distinct([translated, original, .. alternatives.Keys]))
+        {
+            Raw = CompositionText.Raw(CompositionText.Read(input.Text, env)),
+            Alternatives = alternatives,
+            ZenzaiText = hasZenzai ? original : null,
+            LlmTranslationText = translated,
+            LlmTranslationSource = original,
+            Expanded = true,
+        };
+        whole.NotLearned.Add(translated);
+        return [whole];
     }
 
     /// <summary>変換を始めたときに選ぶ文節。</summary>

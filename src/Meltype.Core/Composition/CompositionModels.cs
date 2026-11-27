@@ -68,6 +68,12 @@ internal sealed class Clause(string reading, bool isEnglish, List<string> candid
     /// <summary>候補のうち英訳 (複雑な → complex) のもの。</summary>
     public HashSet<string> Translations { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>ローカル LLM 翻訳モードで生成した訳文 (無ければ null)。</summary>
+    public string? LlmTranslationText { get; set; }
+
+    /// <summary>ローカル LLM 翻訳モードで翻訳した元の日本語文 (候補の意味欄に出す)。</summary>
+    public string? LlmTranslationSource { get; set; }
+
     /// <summary>英日の区切りの案ごとの文を候補にした、文全体の文節なら、候補の文 → その案の文節。</summary>
     public Dictionary<string, List<Clause>>? Alternatives { get; init; }
 }
