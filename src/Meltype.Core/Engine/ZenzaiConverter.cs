@@ -295,6 +295,29 @@ internal sealed class ZenzaiConverter : IKanjiConverter, IDisposable
     internal static bool KeepsSymbols(string hiragana, string answer) =>
         hiragana.Select(Normalize).Where(IsSymbol).SequenceEqual(answer.Select(Normalize).Where(IsSymbol));
 
+    /// <summary>
+    /// 答えに読みに無い絵文字が勝手に混ざっていないか。サロゲートペアの絵文字は <see cref="IsSymbol"/> をすり抜けるため、
+    /// CJK 拡張漢字 (U+20000 以降) は通しつつ絵文字コードポイントだけを別で照合する。
+    /// </summary>
+    internal static bool KeepsEmojis(string hiragana, string answer)
+    {
+        var answerEmojis = answer.EnumerateRunes().Where(IsEmoji).ToList();
+        return answerEmojis.Count == 0 || hiragana.EnumerateRunes().Where(IsEmoji).SequenceEqual(answerEmojis);
+    }
+
+    /// <summary>
+    /// 読みに直接打たれた数字 (2026ねん など) が、答えでも同じ数字のまま保たれているか。
+    /// 読みに数字が無いとき (にせんにじゅうろく → 2026) はそのまま通す。
+    /// </summary>
+    internal static bool KeepsTypedDigits(string hiragana, string answer)
+    {
+        var typedDigits = hiragana.Select(Normalize).Where(char.IsAsciiDigit).ToList();
+        return typedDigits.Count == 0 || answer.Select(Normalize).Where(char.IsAsciiDigit).SequenceEqual(typedDigits);
+    }
+
+    private static bool IsEmoji(Rune r) =>
+        r.Value is (>= 0x1F000 and <= 0x1FAFF) or (>= 0x2600 and <= 0x27BF) or 0x200D or 0xFE0F;
+
     private static bool IsSymbol(char c) => char.IsPunctuation(c) || char.IsSymbol(c) || char.IsWhiteSpace(c);
 
     /// <summary>答えを、読みと 1 文字ずつ比べる文字 (かな・記号) と、読みの 1 文字以上に当たる字 (漢字 1 文字・英数字の並び) に分ける。</summary>

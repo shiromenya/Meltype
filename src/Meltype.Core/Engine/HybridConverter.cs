@@ -91,6 +91,8 @@ internal sealed class HybridConverter(MozcConverter mozc, Func<ZenzaiConverter?>
         IReadOnlyList<ConversionClause> z)
     {
         var other = fromMozc?.Select(s => s.Clause).ToList();
+        // 読みに無い絵文字への勝手な置換や、直接打った数字の改変 (2026ねん → 2025年) は Zenzai の答えを採用しない
+        if (!ZenzaiConverter.KeepsEmojis(hiragana, z[0].Text) || !ZenzaiConverter.KeepsTypedDigits(hiragana, z[0].Text)) return other;
         // Zenzai の答えと同じなら、その文節も Zenzai の答えとして印を付ける
         if (other is not null && string.Concat(other.Select(c => c.Text)) == z[0].Text) return other.Select(c => c with { Zenzai = true }).ToList();
         // 候補は、この変換で文節と一緒に受け取ったものを使う (ヘルパーには聞き直さない)。

@@ -87,21 +87,34 @@ internal static partial class Proofread
     [GeneratedRegex(@"(?<=[\p{IsCJKUnifiedIdeographs}\p{IsKatakana}0-9A-Za-z０-９Ａ-Ｚａ-ｚ々ヶ])([をがで])\1")]
     private static partial Regex DuplicateParticleRegex();
 
-    /// <summary>文を推敲して書き換えがあれば返す。書き換えが無ければ null。isBlocked が true のパターンは適用しない。</summary>
-    internal static ProofreadResult? Apply(string text, Func<string, bool>? isBlocked = null)
+    // キャレットの前の確定済み文の末尾が「漢字/カタカナ/英数字 + 助詞 (を/が/で)」で終わっているか
+    [GeneratedRegex(@"[\p{IsCJKUnifiedIdeographs}\p{IsKatakana}0-9A-Za-z０-９Ａ-Ｚａ-ｚ々ヶ]([をがで])$")]
+    private static partial Regex TrailingParticleRegex();
+
+    // キャレットの前の確定済み文の末尾が「約 + 数字 + 単位」で終わっているか
+    [GeneratedRegex(@"約[0-9０-９一二三四五六七八九十百千万億兆.,、]+[^\s、。「」『』""]{0,4}$")]
+    private static partial Regex TrailingApproximateRegex();
+
+    /// <summary>
+    /// 文を推敲して書き換えがあれば返す。書き換えが無ければ null。
+    /// isBlocked が true のパターンは適用しない。precedingText があれば、確定済みの直前文とのつなぎ目の重複も整える。
+    /// </summary>
+    internal static ProofreadResult? Apply(string text, Func<string, bool>? isBlocked = null, string? precedingText = null)
     {
         if (string.IsNullOrWhiteSpace(text) || text.Length < 2) return null;
         if (text.Contains("http://", StringComparison.OrdinalIgnoreCase) || text.Contains("https://", StringComparison.OrdinalIgnoreCase)) return null;
         if (text.All(c => c < 0x80)) return null;
 
-        var output = new StringBuilder(text.Length);
         var reasons = new List<string>();
         var patterns = new List<string>();
+        var working = ApplyPrecedingBoundary(text, precedingText, reasons, patterns, isBlocked);
+
+        var output = new StringBuilder(working.Length);
         var pos = 0;
 
-        foreach (var (start, length, quoted) in SplitQuotes(text))
+        foreach (var (start, length, quoted) in SplitQuotes(working))
         {
-            var segment = text.Substring(start, length);
+            var segment = working.Substring(start, length);
             if (quoted)
             {
                 output.Append(segment);
@@ -112,10 +125,59 @@ internal static partial class Proofread
             }
             pos = start + length;
         }
-        if (pos < text.Length) output.Append(text, pos, text.Length - pos);
+        if (pos < working.Length) output.Append(working, pos, working.Length - pos);
 
         var rewritten = output.ToString();
         return rewritten == text ? null : new ProofreadResult(rewritten, reasons, patterns);
+    }
+
+    /// <summary>
+    /// 確定済みの直前文 (precedingText) と今回の文 (text) のつなぎ目で起きる重複を、今回の文の先頭から削って整える。
+    /// 確定済みの文字は書き換えられないため、先頭を削っても自然な日本語になる形だけを対象にする。
+    /// </summary>
+    private static string ApplyPrecedingBoundary(string text, string? precedingText, List<string> reasons, List<string> patterns, Func<string, bool>? isBlocked)
+    {
+        if (string.IsNullOrEmpty(precedingText) || text.Length < 2) return text;
+
+        // 1. 「資料を」+「を確認する」→「確認する」
+        if (TrailingParticleRegex().Match(precedingText) is { Success: true } pm && text[0] == pm.Groups[1].Value[0])
+        {
+            var key = "context-particle:" + pm.Groups[1].Value;
+            if (isBlocked?.Invoke(key) != true && text.Length >= 2)
+            {
+                if (!reasons.Contains("重複助詞")) reasons.Add("重複助詞");
+                if (!patterns.Contains(key)) patterns.Add(key);
+                return text[1..];
+            }
+        }
+
+        // 2. 「約10分」+「くらいかかります」→「かかります」
+        if (TrailingApproximateRegex().IsMatch(precedingText))
+        {
+            foreach (var suffix in new[] { "くらい", "ぐらい", "ほど" })
+            {
+                if (!text.StartsWith(suffix, StringComparison.Ordinal) || text.Length <= suffix.Length) continue;
+                var key = "context-approx:" + suffix;
+                if (isBlocked?.Invoke(key) == true) break;
+                if (!reasons.Contains("二重表現")) reasons.Add("二重表現");
+                if (!patterns.Contains(key)) patterns.Add(key);
+                return text[suffix.Length..];
+            }
+        }
+
+        // 3. 「まず」+「最初に確認します」→「確認します」、「過半数」+「以上が賛成」→「が賛成」
+        foreach (var (beforeTail, currentHead) in new[] { ("まず", "最初に"), ("過半数", "以上") })
+        {
+            if (!precedingText.EndsWith(beforeTail, StringComparison.Ordinal) || !text.StartsWith(currentHead, StringComparison.Ordinal) || text.Length <= currentHead.Length)
+                continue;
+            var key = $"context-dup:{beforeTail}+{currentHead}";
+            if (isBlocked?.Invoke(key) == true) break;
+            if (!reasons.Contains("二重表現")) reasons.Add("二重表現");
+            if (!patterns.Contains(key)) patterns.Add(key);
+            return text[currentHead.Length..];
+        }
+
+        return text;
     }
 
     private static string ApplyToSegment(string segment, List<string> reasons, List<string> patterns, Func<string, bool>? isBlocked)

@@ -187,9 +187,10 @@ internal static class CompositionConversion
     private static List<Clause> ApplyProofread(CompositionInput input, CompositionEnv env, List<Clause> clauses)
     {
         var original = string.Concat(clauses.Select(c => c.Text));
+        var before = env.Context().PrecedingText;
         var blocked = env.Services.ProofreadFeedback is { } fb ? fb.IsBlocked : (Func<string, bool>?)null;
-        var active = Proofread.Apply(original, blocked);
-        var result = active ?? Proofread.Apply(original);
+        var active = Proofread.Apply(original, blocked, before);
+        var result = active ?? Proofread.Apply(original, precedingText: before);
         if (result is null) return clauses;
         var prepend = active is not null;
         var reason = "文章推敲: " + string.Join("・", result.Reasons);
@@ -1008,28 +1009,31 @@ internal static class CompositionConversion
         // 記号 (～ ! ? …) は数えない。かなが短いうちに記号を足しただけで、的外れな漢字にしない (な～～～ が 名～～～ になっていた: issue #505)
         if (!CountsAsLive(kana)) return ComposedText.Kana(kana);
         var converted = ComposedText.Concat(LiveClauses(input, env, kana, afterEnglish, before).Select(c => ComposedText.Converted(c.Reading, c.Text)));
-        return ProofreadIfEnabled(env, converted);
+        return ProofreadIfEnabled(env, converted, before);
     }
 
     /// <summary>
     /// 文章推敲が ON のとき、変換済みの日本語文を推敲した文字列にする。変更が無ければそのまま返す。
     /// 句読点 (<see cref="SpanKind.Punctuation"/>) の区間はそのまま残し、設定の句読点スタイル (，． など) が効くようにする。
     /// </summary>
-    internal static ComposedText ProofreadIfEnabled(CompositionEnv env, ComposedText composed)
+    internal static ComposedText ProofreadIfEnabled(CompositionEnv env, ComposedText composed, string? before = null)
     {
         if (!env.Settings.ProofreadMode || composed.Length == 0) return composed;
         var blocked = env.Services.ProofreadFeedback is { } fb ? fb.IsBlocked : (Func<string, bool>?)null;
         if (!composed.Spans.Any(s => s.Kind == SpanKind.Punctuation))
-            return Proofread.Apply(composed.Text, blocked) is { } single ? ComposedText.Of(SpanKind.Japanese, single.Text) : composed;
+            return Proofread.Apply(composed.Text, blocked, before) is { } single ? ComposedText.Of(SpanKind.Japanese, single.Text) : composed;
 
         var parts = new List<ComposedText>();
         var chunk = new List<TextSpan>();
         var changed = false;
+        var firstChunk = true;
         void Flush()
         {
             if (chunk.Count == 0) return;
             var text = string.Concat(chunk.Select(s => s.Text));
-            if (Proofread.Apply(text, blocked) is { } result)
+            var preceding = firstChunk ? before : null;
+            firstChunk = false;
+            if (Proofread.Apply(text, blocked, preceding) is { } result)
             {
                 parts.Add(ComposedText.Of(SpanKind.Japanese, result.Text));
                 changed = true;

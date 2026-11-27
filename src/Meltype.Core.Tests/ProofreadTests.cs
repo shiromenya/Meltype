@@ -276,4 +276,68 @@ internal static class ProofreadTests
         k2.Type("mireru ");
         Assert.Equal("見られる", k2.Host.View!.Text, "プライベート入力欄では却下を記録しない");
     }
+
+    [Test]
+    public static void Proofread_FixesPrecedingContextDuplicates()
+    {
+        var particle = Proofread.Apply("を確認する", precedingText: "資料を");
+        Assert.True(particle is not null, "確定済みの直前文との重複助詞を直す");
+        Assert.Equal("確認する", particle!.Text);
+        Assert.True(particle.Reasons.Contains("重複助詞"), string.Join(",", particle.Reasons));
+
+        var approx = Proofread.Apply("くらいかかります", precedingText: "約10分");
+        Assert.True(approx is not null, "確定済みの 約10分 と くらい の二重表現を直す");
+        Assert.Equal("かかります", approx!.Text);
+
+        var first = Proofread.Apply("最初に確認します", precedingText: "まず");
+        Assert.True(first is not null, "確定済みの まず と 最初に の二重表現を直す");
+        Assert.Equal("確認します", first!.Text);
+
+        var majority = Proofread.Apply("以上が賛成", precedingText: "過半数");
+        Assert.True(majority is not null, "確定済みの 過半数 と 以上 の二重表現を直す");
+        Assert.Equal("が賛成", majority!.Text);
+
+        Assert.True(Proofread.Apply("を", precedingText: "資料を") is null, "削ると空になる 1 文字は対象外");
+
+        var converter = new MapConverter(new()
+        {
+            ["しりょうを"] = [new("しりょうを", "資料を")],
+            ["をかくにんする"] = [new("を", "を"), new("かくにんする", "確認する")],
+        });
+        var k = new Keyboard(converter: converter);
+        k.Settings.ProofreadMode = true;
+        k.Type("siryouwo \n");
+        k.Type("wokakuninsuru ");
+        Assert.Equal("確認する", k.Host.View!.Text, "直前文脈の重複助詞を削った候補が先頭");
+        Assert.Equal("を確認する", k.Host.View.Candidates[1], "元の表現が第 2 候補に残る");
+        k.Press(VirtualKeys.Space);
+        Assert.Equal("を確認する", k.Host.View.Text, "Space で元の表現に戻せる");
+    }
+
+    [Test]
+    public static void Zenzai_ProtectsTypedDigitsAndRejectsUnexpectedEmojis()
+    {
+        Assert.True(ZenzaiConverter.KeepsEmojis("えがお", "笑顔"), "通常の漢字変換は通す");
+        Assert.True(!ZenzaiConverter.KeepsEmojis("えがお", "😊"), "読みに無い絵文字への置換は弾く");
+        Assert.True(!ZenzaiConverter.KeepsEmojis("ありがとう", "ありがとう😊"), "末尾に絵文字を足す答えは弾く");
+        Assert.True(ZenzaiConverter.KeepsEmojis("しかる", "𠮟る"), "CJK 拡張漢字 (サロゲートペア) は絵文字と誤認しない");
+
+        Assert.True(ZenzaiConverter.KeepsTypedDigits("2026ねん", "2026年"), "打った数字を保つ答えは通す");
+        Assert.True(!ZenzaiConverter.KeepsTypedDigits("2026ねん", "2025年"), "打った数字を別数字に変える答えは弾く");
+        Assert.True(ZenzaiConverter.KeepsTypedDigits("にせんにじゅうろくねん", "2026年"), "読みに数字が無い場合の数字変換は通す");
+
+        var mozc = new List<(ConversionClause Clause, IReadOnlyList<string> Candidates)>
+        {
+            (new("2026ねん", "2026年"), ["2026年"]),
+        };
+        var chosenDigit = HybridConverter.Choose("2026ねん", mozc, [new("2026ねん", "2025年") { Zenzai = true }]);
+        Assert.Equal("2026年", chosenDigit![0].Text, "数字を改変した Zenzai の答えより Mozc を使う");
+
+        var mozcEmoji = new List<(ConversionClause Clause, IReadOnlyList<string> Candidates)>
+        {
+            (new("えがお", "笑顔"), ["笑顔", "😊"]),
+        };
+        var chosenEmoji = HybridConverter.Choose("えがお", mozcEmoji, [new("えがお", "😊") { Zenzai = true }]);
+        Assert.Equal("笑顔", chosenEmoji![0].Text, "読みに無い絵文字を出した Zenzai の答えより Mozc を使う");
+    }
 }
