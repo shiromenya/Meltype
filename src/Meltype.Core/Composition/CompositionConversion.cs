@@ -206,15 +206,16 @@ internal static class CompositionConversion
     ];
 
     /// <summary>
-    /// 変換結果の末尾が「〜を英語 / 〜をえいご」等のスポット翻訳指定なら、前半部分と指定言語を返す。
+    /// 変換結果の末尾が「〜を英語 / 〜を英語に / 〜を英語で / 〜をえいご」等のスポット翻訳指定なら、前半部分と指定言語を返す。
     /// 通常の翻訳モードが OFF のときでもスポット翻訳として利用できる。
     /// </summary>
     internal static (string Source, Config.TranslationTarget Target)? MatchSpotTranslation(string text)
     {
+        var trimmed = text.Length >= 2 && text[^1] is 'に' or 'で' ? text[..^1] : text;
         foreach (var (suffix, target) in SpotTranslationSuffixes)
         {
-            if (!text.EndsWith(suffix, StringComparison.Ordinal)) continue;
-            var source = text[..^suffix.Length].TrimEnd();
+            if (!trimmed.EndsWith(suffix, StringComparison.Ordinal)) continue;
+            var source = trimmed[..^suffix.Length].TrimEnd();
             if (source.Length >= 2 && !source.All(c => c < 0x80)) return (source, target);
         }
         return null;

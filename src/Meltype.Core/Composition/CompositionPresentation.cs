@@ -124,6 +124,13 @@ internal static class CompositionPresentation
         }
         var selected = predictionIndex >= 0 ? PredictionText(predictions[predictionIndex]) : null;
         var display = selected ?? CurrentComposed(input, env, final: false);
+        if (contextHint is null && selected is null && env.Settings.LiveConversion && env.Settings.LiveTranslation &&
+            env.Settings.TranslationMode != TranslationTarget.Off && env.Services.TextTranslator is { } liveTranslator &&
+            liveTranslator.IsTranslating(display.Text, env.Settings.TranslationMode))
+        {
+            contextHint = $"翻訳中({Engine.TranslationTargetExtensions.ShortLabel(env.Settings.TranslationMode)})…";
+            hint = contextHint + "　" + hint;
+        }
         return new ComposedView(display, [], -1, false, hint,
             Suggestion: Suggestion(misspelling),
             Predictions: predictions.Count > 0 ? predictions.Select(p => ComposedText.Of(SpanKind.Japanese, p.Text)).ToList() : null, SelectedPrediction: predictionIndex, Typed: TypedKeys(input, null, env),

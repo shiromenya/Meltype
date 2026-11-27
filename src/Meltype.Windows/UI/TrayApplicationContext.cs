@@ -28,6 +28,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly Icon _offIcon = CreateIcon("A", Color.FromArgb(120, 120, 120));
     private readonly ToolStripMenuItem _keyboardModeItem;
     private readonly ToolStripMenuItem _autoDetectionItem;
+    private readonly ToolStripMenuItem _translationModeItem;
     private readonly ToolStripMenuItem _profileItem;
     private readonly Composition.CompositionService _composition;
     private readonly Tip.TipServer _tipServer;
@@ -94,6 +95,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
         // 英語 / 日本語の自動判定 (OFF なら提案だけ出し、Tab で英字にする)
         _autoDetectionItem = new ToolStripMenuItem("英語 / 日本語を自動で判定する", null, (_, _) => ToggleAutoDetection());
         menu.Items.Add(_autoDetectionItem);
+        _translationModeItem = new ToolStripMenuItem("翻訳モード");
+        foreach (var target in Enum.GetValues<TranslationTarget>())
+        {
+            var captured = target;
+            _translationModeItem.DropDownItems.Add(new ToolStripMenuItem(Engine.TranslationTargetExtensions.ShortLabel(captured), null, (_, _) => SetTranslationMode(captured)) { Tag = captured });
+        }
+        menu.Items.Add(_translationModeItem);
         // プロファイル (仕事用・趣味用・SNS 用など)。一覧は開くたびに作る (設定画面で足したもの・名前を変えたものを出す)
         _profileItem = new ToolStripMenuItem("プロファイル");
         _profileItem.DropDownItems.Add("(読み込み中)");
@@ -506,6 +514,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
         UpdateStatus();
     }
 
+    private void SetTranslationMode(TranslationTarget target)
+    {
+        _engine.EditSettings(settings => settings.TranslationMode = target);
+        UpdateStatus();
+    }
+
     private void SetMode(InputMode mode)
     {
         if (AppPaths.IsPortable && mode != InputMode.Keyboard) return;
@@ -558,6 +572,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var translation = _composition.Runtime.TextTranslatorStatus();
         _translationItem.Visible = translation is not null;
         if (translation is not null) _translationItem.Text = $"翻訳 ({Engine.TranslationTargetExtensions.ShortLabel(settings.TranslationMode)}): {translation}";
+        _translationModeItem.Text = settings.TranslationMode == TranslationTarget.Off
+            ? "翻訳モード (OFF)"
+            : $"翻訳モード ({Engine.TranslationTargetExtensions.ShortLabel(settings.TranslationMode)})";
+        foreach (ToolStripMenuItem item in _translationModeItem.DropDownItems)
+            item.Checked = item.Tag is TranslationTarget t && t == settings.TranslationMode;
         var tip = $"Meltype — {status}";
         _tray.Text = tip.Length > 63 ? tip[..63] : tip;
     }

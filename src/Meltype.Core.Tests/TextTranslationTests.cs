@@ -232,6 +232,11 @@ internal static class TextTranslationTests
         Assert.Equal("翻訳(韓国語)", k.Host.View.ContextHint);
         k.Press(VirtualKeys.Space);
         Assert.Equal("ありがとうを韓国語", k.Host.View.Text, "Space で元の表現に戻せる");
+
+        Assert.Equal(("こんにちは", TranslationTarget.English), CompositionConversion.MatchSpotTranslation("こんにちはを英語に")!.Value, "「〜を英語に」にも対応する");
+        Assert.Equal(("こんにちは", TranslationTarget.English), CompositionConversion.MatchSpotTranslation("こんにちはを英語で")!.Value, "「〜を英語で」にも対応する");
+        Assert.Equal(("ありがとう", TranslationTarget.French), CompositionConversion.MatchSpotTranslation("ありがとうをふらんすごに")!.Value, "ひらがな＋「に」にも対応する");
+        Assert.True(CompositionConversion.MatchSpotTranslation("英語で説明する") is null, "文中の「英語で」には誤爆しない");
     }
 
     [Test]
@@ -250,6 +255,7 @@ internal static class TextTranslationTests
         k.Settings.LiveTranslation = true;
         k.Type("konnnichiha");
         Assert.Equal("こんにちは", k.Host.View!.Text, "未キャッシュ時は日本語を出しつつ裏で翻訳を予約する");
+        Assert.Equal("翻訳中(英語)…", k.Host.View.ContextHint, "ライブ翻訳待機中も翻訳中ヒントを出す");
         translator.Complete(TranslationTarget.English, "こんにちは", "Hello");
         k.NotifyConversionFinished();
         Assert.Equal("Hello", k.Host.View!.Text, "ライブ翻訳完了後にリアルタイムで訳文へ切り替わる");

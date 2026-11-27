@@ -27,18 +27,21 @@ internal sealed partial class LlamaServerTranslator : ITextTranslator
     private const int InferTimeoutMs = 10_000;
     private const int DebounceMs = 120;
     private const int MaxCacheEntries = 2048;
+    private const long SpotIdleTimeoutMs = 5 * 60 * 1000;
 
     private static readonly HttpClient DownloadHttp = new() { Timeout = TimeSpan.FromMinutes(15) };
 
     private readonly string _defaultModelPath;
     private readonly Func<string> _serverPathProvider;
     private readonly Func<string> _deviceProvider;
+    private readonly Func<bool> _isPersistentProvider;
     private readonly Uri? _fixedEndpoint;
     private readonly HttpClient _http = new() { Timeout = Timeout.InfiniteTimeSpan };
     private readonly ConcurrentDictionary<(TranslationTarget Target, string Text), string> _cache = new();
     private readonly SemaphoreSlim _inferGate = new(1, 1);
     private readonly CancellationTokenSource _disposeCts = new();
     private readonly object _stateGate = new();
+    private readonly Timer? _idleTimer;
 
     private Process? _process;
     private string? _pidFile;
@@ -47,13 +50,16 @@ internal sealed partial class LlamaServerTranslator : ITextTranslator
     private Task? _initTask;
     private CancellationTokenSource? _pendingCts;
     private (TranslationTarget Target, string Text)? _translatingKey;
+    private long _lastUsedTick = Environment.TickCount64;
     private volatile bool _disposed;
 
-    public LlamaServerTranslator(string dataDirectory, Func<string> serverPathProvider, Func<string> deviceProvider)
+    public LlamaServerTranslator(string dataDirectory, Func<string> serverPathProvider, Func<string> deviceProvider, Func<bool>? isPersistentProvider = null)
     {
         _defaultModelPath = Path.Combine(dataDirectory, "models", DefaultModelFileName);
         _serverPathProvider = serverPathProvider;
         _deviceProvider = deviceProvider;
+        _isPersistentProvider = isPersistentProvider ?? (() => false);
+        _idleTimer = new Timer(_ => CheckIdleStop(), null, 60_000, 60_000);
     }
 
     /// <summary>すでに動いている llama-server (またはテスト用偽サーバー) を使うコンストラクタ。</summary>
@@ -62,6 +68,7 @@ internal sealed partial class LlamaServerTranslator : ITextTranslator
         _defaultModelPath = modelName;
         _serverPathProvider = () => "";
         _deviceProvider = () => "";
+        _isPersistentProvider = () => false;
         _fixedEndpoint = fixedEndpoint;
         _endpoint = fixedEndpoint;
         _loadedModelPath = modelName;
@@ -129,6 +136,13 @@ internal sealed partial class LlamaServerTranslator : ITextTranslator
         DeletePidFile(pidFile);
     }
 
+    private void CheckIdleStop()
+    {
+        if (_disposed || _isPersistentProvider()) return;
+        if (Environment.TickCount64 - Interlocked.Read(ref _lastUsedTick) >= SpotIdleTimeoutMs)
+            StopIfUnused();
+    }
+
     public string? TranslateOrRequest(string japaneseText, TranslationTarget target, string modelPath, int debounceMs = DebounceMs)
     {
         if (_disposed || target == TranslationTarget.Off || string.IsNullOrWhiteSpace(japaneseText))
@@ -136,6 +150,7 @@ internal sealed partial class LlamaServerTranslator : ITextTranslator
         var normalized = NormalizeKey(japaneseText);
         if (normalized.Length < 2 || !ContainsJapanese(normalized))
             return null;
+        Interlocked.Exchange(ref _lastUsedTick, Environment.TickCount64);
 
         // モデルパスが切り替わった場合はキャッシュを破棄して再起動する
         if (_fixedEndpoint is null)
@@ -601,6 +616,7 @@ internal sealed partial class LlamaServerTranslator : ITextTranslator
     {
         if (_disposed) return;
         _disposed = true;
+        _idleTimer?.Dispose();
         _disposeCts.Cancel();
         lock (_stateGate)
         {

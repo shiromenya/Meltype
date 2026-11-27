@@ -137,7 +137,8 @@ public sealed class MeltypeRuntime : IDisposable
             SetTextTranslator(new LlamaServerTranslator(
                 DataDirectory,
                 () => ZenzaiBundle.ServerPath(Settings.Current.ZenzaiServerPath, appDirectory),
-                () => Settings.Current.ZenzaiDevice));
+                () => Settings.Current.ZenzaiDevice,
+                () => Settings.Current.TranslationMode != TranslationTarget.Off));
         }
         converter.WarmUp();
         return converter.MozcInstalled;
