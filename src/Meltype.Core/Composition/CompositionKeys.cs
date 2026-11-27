@@ -373,6 +373,7 @@ internal static class CompositionKeys
                 CompositionConversion.StartRomajiReconversion(state, env, selection);
                 return;
             }
+            if (env.Settings.ProofreadMode && CompositionConversion.StartProofreadReconversion(state, env, selection)) return;
             var input = CompositionLifecycle.Begin(state, env, reconversion: selection);
             input.Text = CompositionText.AppendReading(input.Text, selection.Reading) with { Mode = DisplayMode.Hiragana };
             CompositionConversion.StartConversion(state, input, env, preferJapanese: true);

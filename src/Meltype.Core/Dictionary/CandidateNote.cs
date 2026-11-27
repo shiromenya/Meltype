@@ -11,6 +11,7 @@ public enum CandidateNote
     FullWidth,
     Translation,
     Zenzai,
+    Proofread,
 }
 
 public static class CandidateNoteExtensions
@@ -23,6 +24,7 @@ public static class CandidateNoteExtensions
         CandidateNote.FullWidth => "全角",
         CandidateNote.Translation => "英訳",
         CandidateNote.Zenzai => "Zenzai",
+        CandidateNote.Proofread => "推敲",
         _ => throw new ArgumentOutOfRangeException(nameof(note), note, "候補の注記が不正です。"),
     };
 }

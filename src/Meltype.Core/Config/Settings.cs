@@ -496,6 +496,10 @@ public sealed class Settings
      Description("Space・Enter で変換・確定するときに、ローマ字の打ち間違いを直します。読めない子音が残ったとき、隣のキーの押し間違い・入れ替わり・抜けを 1 文字だけ直します (onegaishimsu → お願いします、sumimasne → すみません。よく使う語の読みになるときだけ)。")]
     public bool CorrectTypos { get; set; } = true;
 
+    [Category("5. 変換"), DisplayName("文章推敲"),
+     Description("変換やライブ変換のときに、冗長表現 (〜することができます → 〜できます)・二重表現 (まず最初に → 最初に)・ら抜き言葉 (見れる → 見られる)・重複した助詞や定番の誤用を直した候補を先頭に出します。元の表現も候補に残るので Space で戻せます。引用 (「…」・『…』・\"…\") の中は書き換えません。既定は OFF です。")]
+    public bool ProofreadMode { get; set; }
+
     [Category("7. 記号・スペース"), DisplayName("かなの後ろの /"),
      Description("かなのすぐ後ろで打った / を、中黒「・」(いーろん/ますく → イーロン・マスク) か全角のスラッシュ「／」にします。英字・数字の後ろ (and/or、3/4、URL) は / のままです。文章の入力欄の打ち始めの / は、この設定に関係なく「・」になり、Space で / にできます。「/ のまま」のときも、z/ (設定「z + 記号・hjkl で記号・矢印を入れる」が ON のとき) または / を打って Space で「・」にできます。")]
     public SlashStyle Slash { get; set; } = SlashStyle.Slash;

@@ -14,9 +14,10 @@ namespace Meltype.Composition;
 internal static class CompositionPresentation
 {
 
-    /// <summary>選んでいる候補の意味: 日本語の意味 (ウィクショナリー)、無ければ英訳 (JMdict)。</summary>
+    /// <summary>選んでいる候補の意味: 文章推敲の理由、日本語の意味 (ウィクショナリー)、無ければ英訳 (JMdict)。</summary>
     private static string? CandidateMeaning(CompositionEnv env, Clause clause) =>
-        env.Services.Meanings?.Lookup(clause.Text, clause.IsEnglish ? null : clause.Reading) ?? env.Services.Translations?.Meaning(clause.Text);
+        clause.ProofreadReason is { } reason && clause.Text == clause.ProofreadText ? reason
+        : env.Services.Meanings?.Lookup(clause.Text, clause.IsEnglish ? null : clause.Reading) ?? env.Services.Translations?.Meaning(clause.Text);
 
     /// <summary>
     /// 候補の右に小さく出す注記: Zenzai の答え、英訳 (complex)、半角 / 全角 (同じ記号・英数字の半角と全角が両方候補にあるとき。# と ＃ は見分けにくい)。
@@ -28,6 +29,7 @@ internal static class CompositionPresentation
         if (clause.Notes is { } fixedNotes) return [.. fixedNotes];
         var notes = clause.Candidates.Select(c =>
         {
+            if (c == clause.ProofreadText) return CandidateNote.Proofread;
             if (c == clause.ZenzaiText) return CandidateNote.Zenzai;
             if (clause.Translations.Contains(c)) return CandidateNote.Translation;
             var half = ToHalfWidth(c);
@@ -65,22 +67,30 @@ internal static class CompositionPresentation
         var selected = conversion.SelectedClause;
         // 選んでいる文節は、最初から候補の一覧をすべて出す (Space を 1 回押しただけでは一部しか出ず、選び間違えやすかった)。
         if (!selected.Expanded) CompositionConversion.Expand(env, selected);
-        // 出している文節に Zenzai の答えがあれば、説明の頭に「Zenzai」と出す (学習・選び直しで変わった文節は数えない。issue #1152)
-        var zenzai = conversion.Clauses.Any(c => c.ZenzaiText is { } z && c.Text == z);
+        // 出している文節に Zenzai の答えや文章推敲があれば、説明の頭にバッジを出す (学習・選び直しで変わった文節は数えない。issue #1152)
+        var zenzai = conversion.Clauses.Any(c => c.ZenzaiText is { } z && (c.Text == z || c.Text == c.ProofreadText));
+        var proofread = conversion.Clauses.Any(c => c.ProofreadText is { } p && c.Text == p);
+        var badge = (zenzai, proofread) switch
+        {
+            (true, true) => "Zenzai · 推敲",
+            (true, false) => "Zenzai",
+            (false, true) => "推敲",
+            _ => null,
+        };
         var clauses = conversion.Clauses.Select(c => Composed([c])).ToList();
         return new ComposedView(
             ComposedText.Concat(clauses),
             [.. selected.Candidates.Select(c => Candidate(selected, c))],
             selected.Index,
             true,
-            (zenzai ? "Zenzai · " : "") + "←→ 文節　Space/↓ 候補　1〜9 選択　Shift+←→ 区切り　Enter 確定　Esc 戻る",
+            (badge is not null ? badge + " · " : "") + "←→ 文節　Space/↓ 候補　1〜9 選択　Shift+←→ 区切り　Enter 確定　Esc 戻る",
             clauses,
             conversion.Selected,
             CandidateNotes(selected),
             CandidateMeaning(env, selected),
             Suggestion(CompositionSpelling.MisspellingSuggestion(input, env)),
             Typed: TypedKeys(input, conversion, env),
-            Committed: ComposedText.Concat(clauses), ContextHint: zenzai ? "Zenzai" : null, Colors: selected.Colors);
+            Committed: ComposedText.Concat(clauses), ContextHint: badge, Colors: selected.Colors);
     }
 
     private static ComposedView TypingView(CompositionInput input, CompositionEnv env)
@@ -233,7 +243,7 @@ internal static class CompositionPresentation
     /// </summary>
     internal static ComposedText CommittedDisplay(CompositionInput input, CompositionEnv env) => env.LateResults
         ? CompositionText.Compose(CompositionText.Read(input.Text, env), env, final: true, env.Settings.LiveConversion
-            ? (kana, afterEnglish, shown) => CompositionConversion.CountsAsLive(kana) ? Composed(CompositionConversion.ConvertJapaneseSegment(input, env, kana, afterEnglish, CompositionConversion.SegmentBefore(env, shown), zenzai: true)) : ComposedText.Kana(kana)
+            ? (kana, afterEnglish, shown) => CompositionConversion.CountsAsLive(kana) ? CompositionConversion.ProofreadIfEnabled(env, Composed(CompositionConversion.ConvertJapaneseSegment(input, env, kana, afterEnglish, CompositionConversion.SegmentBefore(env, shown), zenzai: true))) : ComposedText.Kana(kana)
             : null)
         : CurrentComposed(input, env, final: true);
 

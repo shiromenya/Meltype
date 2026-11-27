@@ -37,6 +37,34 @@ internal static class CompositionConversion
         text.Any(char.IsAsciiLetter) && text.All(c => c is >= ' ' and <= '~') && text.Trim().Length > 0;
 
     /// <summary>
+    /// 文章推敲が ON のとき、選択済みの文章そのものに推敲案があれば、読みを介さずに直接「推敲案 / 元の文章」を候補に出す。
+    /// 読みからの再変換で関係ない箇所の漢字が崩れるのを防ぐ。推敲案が無ければ false (通常の再変換へ進む)。
+    /// </summary>
+    internal static bool StartProofreadReconversion(CompositionState state, CompositionEnv env, ReconversionSelection selection)
+    {
+        var blocked = env.Services.ProofreadFeedback is { } fb ? fb.IsBlocked : (Func<string, bool>?)null;
+        var active = Proofread.Apply(selection.Text, blocked);
+        var result = active ?? Proofread.Apply(selection.Text);
+        if (result is null) return false;
+        var input = CompositionLifecycle.Begin(state, env, reconversion: selection);
+        input.Text = CompositionText.AppendReading(input.Text, selection.Reading) with { Mode = DisplayMode.Hiragana };
+        var candidates = active is not null
+            ? new List<string> { result.Text, selection.Text }
+            : new List<string> { selection.Text, result.Text };
+        var clause = new Clause(selection.Reading, false, candidates)
+        {
+            ProofreadText = result.Text,
+            ProofreadReason = "文章推敲: " + string.Join("・", result.Reasons),
+            ProofreadPatterns = result.Patterns,
+            Expanded = true,
+            Fixed = true,
+        };
+        clause.NotLearned.Add(result.Text);
+        CompositionLifecycle.Convert(state, input, new Conversion([clause], ConversionTrigger.Other, preferJapanese: true));
+        return true;
+    }
+
+    /// <summary>
     /// ローマ字のまま入った文を選んで変換キーを押したとき (Meltype が止まっていた・ターミナルで打った: issue #288)。
     /// Meltype の判定で日本語の所だけを日本語にした文を候補として見せ、Enter で選んだ文字と置き換える。
     /// 候補は 日本語にした文 → 選んだままの文。日本語にする所が無ければ何もしない。
@@ -147,7 +175,56 @@ internal static class CompositionConversion
             if (input.KeptChoices.TryGetValue(clause.Reading, out var kept) && clause.Candidates.Contains(kept)) Prefer(clause, kept);
         // 打ち始めの ・ は、Space で / にする。
         if (CompositionText.IsSlashAtStart(CompositionText.Read(input.Text, env)) && clauses is [var slash]) Prefer(slash, "/");
+        if (env.Settings.ProofreadMode && utility is null) clauses = ApplyProofread(input, env, clauses);
         return new Conversion(clauses, trigger, preferJapanese) { Selected = InitialClause(env, clauses.Count) };
+    }
+
+    /// <summary>
+    /// 文章推敲が ON のとき、変換結果の文全体に推敲案があれば先頭の候補として差し込む。
+    /// 自動抑止中のパターンだけのときは元の表現を第 1 候補に残し、推敲案を第 2 候補に添える (後から選び直せば抑止を解除できる)。
+    /// 推敲案は学習しない (<see cref="Clause.NotLearned"/>)。
+    /// </summary>
+    private static List<Clause> ApplyProofread(CompositionInput input, CompositionEnv env, List<Clause> clauses)
+    {
+        var original = string.Concat(clauses.Select(c => c.Text));
+        var blocked = env.Services.ProofreadFeedback is { } fb ? fb.IsBlocked : (Func<string, bool>?)null;
+        var active = Proofread.Apply(original, blocked);
+        var result = active ?? Proofread.Apply(original);
+        if (result is null) return clauses;
+        var prepend = active is not null;
+        var reason = "文章推敲: " + string.Join("・", result.Reasons);
+        if (clauses is [var single] && single.Alternatives is null)
+        {
+            single.Candidates.Remove(result.Text);
+            single.Candidates.Insert(prepend ? 0 : Math.Min(1, single.Candidates.Count), result.Text);
+            single.Index = 0;
+            single.ProofreadText = result.Text;
+            single.ProofreadReason = reason;
+            single.ProofreadPatterns = result.Patterns;
+            single.NotLearned.Add(result.Text);
+            if (prepend) single.Leading = Math.Max(single.Leading, 1);
+            return clauses;
+        }
+        var reading = CompositionText.AllKana(CompositionText.Read(input.Text, env), env, final: true);
+        var alternatives = clauses is [{ Alternatives: { } existing }]
+            ? new Dictionary<string, List<Clause>>(existing, StringComparer.Ordinal)
+            : new Dictionary<string, List<Clause>>(StringComparer.Ordinal) { [original] = clauses };
+        var hasZenzai = clauses.Any(c => c.ZenzaiText is { } z && c.Text == z);
+        List<string> candidates = prepend
+            ? Distinct([result.Text, original, .. alternatives.Keys])
+            : Distinct([original, result.Text, .. alternatives.Keys]);
+        var whole = new Clause(reading, false, candidates)
+        {
+            Raw = CompositionText.Raw(CompositionText.Read(input.Text, env)),
+            Alternatives = alternatives,
+            ZenzaiText = hasZenzai ? original : null,
+            ProofreadText = result.Text,
+            ProofreadReason = reason,
+            ProofreadPatterns = result.Patterns,
+            Expanded = true,
+        };
+        whole.NotLearned.Add(result.Text);
+        return [whole];
     }
 
     /// <summary>変換を始めたときに選ぶ文節。</summary>
@@ -930,7 +1007,53 @@ internal static class CompositionConversion
     {
         // 記号 (～ ! ? …) は数えない。かなが短いうちに記号を足しただけで、的外れな漢字にしない (な～～～ が 名～～～ になっていた: issue #505)
         if (!CountsAsLive(kana)) return ComposedText.Kana(kana);
-        return ComposedText.Concat(LiveClauses(input, env, kana, afterEnglish, before).Select(c => ComposedText.Converted(c.Reading, c.Text)));
+        var converted = ComposedText.Concat(LiveClauses(input, env, kana, afterEnglish, before).Select(c => ComposedText.Converted(c.Reading, c.Text)));
+        return ProofreadIfEnabled(env, converted);
+    }
+
+    /// <summary>
+    /// 文章推敲が ON のとき、変換済みの日本語文を推敲した文字列にする。変更が無ければそのまま返す。
+    /// 句読点 (<see cref="SpanKind.Punctuation"/>) の区間はそのまま残し、設定の句読点スタイル (，． など) が効くようにする。
+    /// </summary>
+    internal static ComposedText ProofreadIfEnabled(CompositionEnv env, ComposedText composed)
+    {
+        if (!env.Settings.ProofreadMode || composed.Length == 0) return composed;
+        var blocked = env.Services.ProofreadFeedback is { } fb ? fb.IsBlocked : (Func<string, bool>?)null;
+        if (!composed.Spans.Any(s => s.Kind == SpanKind.Punctuation))
+            return Proofread.Apply(composed.Text, blocked) is { } single ? ComposedText.Of(SpanKind.Japanese, single.Text) : composed;
+
+        var parts = new List<ComposedText>();
+        var chunk = new List<TextSpan>();
+        var changed = false;
+        void Flush()
+        {
+            if (chunk.Count == 0) return;
+            var text = string.Concat(chunk.Select(s => s.Text));
+            if (Proofread.Apply(text, blocked) is { } result)
+            {
+                parts.Add(ComposedText.Of(SpanKind.Japanese, result.Text));
+                changed = true;
+            }
+            else
+            {
+                foreach (var span in chunk) parts.Add(ComposedText.Of(span.Kind, span.Text));
+            }
+            chunk.Clear();
+        }
+        foreach (var span in composed.Spans)
+        {
+            if (span.Kind == SpanKind.Punctuation)
+            {
+                Flush();
+                parts.Add(ComposedText.Of(SpanKind.Punctuation, span.Text));
+            }
+            else
+            {
+                chunk.Add(span);
+            }
+        }
+        Flush();
+        return changed ? ComposedText.Concat(parts) : composed;
     }
 
     /// <summary>

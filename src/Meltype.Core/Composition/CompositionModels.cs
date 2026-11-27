@@ -29,6 +29,15 @@ internal sealed class Clause(string reading, bool isEnglish, List<string> candid
     /// <summary>変換エンジンが返したときの Zenzai の答え (Zenzai の答えでなければ null)。今の文字列がこれと同じなら説明に「Zenzai」と出し、候補の一覧ではこの候補に注記を付ける。</summary>
     public string? ZenzaiText { get; set; }
 
+    /// <summary>文章推敲で提案した候補 (無ければ null)。今の文字列がこれと同じなら説明に「推敲」と出し、候補の一覧ではこの候補に注記を付ける。</summary>
+    public string? ProofreadText { get; set; }
+
+    /// <summary>文章推敲の理由 (候補の意味欄に出す)。推敲候補が無いときは null。</summary>
+    public string? ProofreadReason { get; set; }
+
+    /// <summary>文章推敲で適用したパターンの識別子 (確定時の採用・却下記録に使う)。</summary>
+    public IReadOnlyList<string>? ProofreadPatterns { get; set; }
+
     /// <summary>
     /// 日本語の文節の、文の中での変換結果 (変換エンジンの答え・ユーザー辞書の語)。<see cref="CompositionConversion"/> が、その読みだけの変換などの候補をこの後ろに並べる。
     /// 変換エンジンに頼まない文節 (英語・記号) は null。

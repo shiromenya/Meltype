@@ -31,6 +31,15 @@ internal static class CompositionCommit
         // 文節が 1 つの案の、その文節の候補 (Shift+Space で変換した make の まけ) を選んだときは、その文節で選んだときと同じく学習する。
         // 案が 1 つだけで文全体の文節にならなかったときと、同じ候補を選んで学習が変わらないようにするため
         var chosenWhole = conversion?.Clauses is [{ Alternatives: not null, Changed: true }];
+        if (conversion is not null && CompositionLifecycle.Learning(state, input, env) && env.Services.ProofreadFeedback is { } proofreadFeedback)
+        {
+            foreach (var clause in conversion.Clauses)
+            {
+                if (clause.ProofreadPatterns is not { Count: > 0 } patterns || clause.ProofreadText is not { } proofreadText) continue;
+                if (clause.Text == proofreadText) proofreadFeedback.RecordAccepted(patterns);
+                else proofreadFeedback.RecordRejected(patterns);
+            }
+        }
         if (conversion is not null) CompositionConversion.SplitWholeSentence(conversion);
         var clauses = conversion?.Clauses;
         // 区間分けの重みで決まらなかった確定の決まり。誤変換の報告をログから読み解けるよう、通った決まりを確定のログに書く (issue #1644)
