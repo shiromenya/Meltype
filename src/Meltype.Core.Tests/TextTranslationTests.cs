@@ -5,6 +5,7 @@ using Meltype.Composition;
 using Meltype.Config;
 using Meltype.Dictionary;
 using Meltype.Engine;
+using Meltype.Ime;
 using Meltype.Input;
 using Meltype.Learning;
 using static Meltype.Tests.CompositionTests;
@@ -16,6 +17,7 @@ internal static class TextTranslationTests
     private sealed class FakeTranslator : ITextTranslator
     {
         public Dictionary<(TranslationTarget Target, string Text), string> Results { get; } = new();
+        public HashSet<(TranslationTarget Target, string Text)> Pending { get; } = [];
         public List<(TranslationTarget Target, string Text, string ModelPath)> Requests { get; } = [];
         public bool Stopped { get; private set; }
         public string? Status => "準備完了 (テスト)";
@@ -23,16 +25,19 @@ internal static class TextTranslationTests
 
         public void EnsureStarted(string modelPath) => Stopped = false;
         public void StopIfUnused() => Stopped = true;
-        public bool IsTranslating(string japaneseText, TranslationTarget target) => false;
+        public bool IsTranslating(string japaneseText, TranslationTarget target) => Pending.Contains((target, japaneseText));
 
         public string? TranslateOrRequest(string japaneseText, TranslationTarget target, string modelPath)
         {
             Requests.Add((target, japaneseText, modelPath));
-            return Results.TryGetValue((target, japaneseText), out var translated) ? translated : null;
+            if (Results.TryGetValue((target, japaneseText), out var translated)) return translated;
+            Pending.Add((target, japaneseText));
+            return null;
         }
 
         public void Complete(TranslationTarget target, string japaneseText, string translated)
         {
+            Pending.Remove((target, japaneseText));
             Results[(target, japaneseText)] = translated;
             TranslationReady?.Invoke();
         }
@@ -144,5 +149,66 @@ internal static class TextTranslationTests
         k.Settings.TranslationMode = TranslationTarget.English;
         k.Type("hello ");
         Assert.True(translator.Requests.Count == 0, "英字のみの入力は翻訳しない");
+    }
+
+    [Test]
+    public static void TranslationMode_ShowsTranslatingHintWhileWaiting()
+    {
+        var translator = new FakeTranslator();
+        var converter = new MapConverter(new() { ["こんにちは"] = [new("こんにちは", "こんにちは")] });
+
+        var k = new Keyboard(converter: converter, textTranslator: translator);
+        k.Settings.TranslationMode = TranslationTarget.English;
+        k.Type("konnnichiha ");
+
+        Assert.Equal("こんにちは", k.Host.View!.Text, "翻訳完了までは元の日本語を出す");
+        Assert.Equal("翻訳中(英語)…", k.Host.View.ContextHint, "翻訳待ち中は翻訳中ヒントを出す");
+
+        translator.Complete(TranslationTarget.English, "こんにちは", "Hello");
+        k.NotifyConversionFinished();
+        Assert.Equal("Hello", k.Host.View!.Text, "翻訳完了後のリフレッシュで訳文が先頭になる");
+        Assert.Equal("翻訳(英語)", k.Host.View.ContextHint);
+    }
+
+    [Test]
+    public static void TranslationMode_ReconversionRefreshesWhenUncachedCompletes()
+    {
+        var translator = new FakeTranslator();
+        var k = new Keyboard(textTranslator: translator);
+        k.Settings.TranslationMode = TranslationTarget.Korean;
+        k.Host.Selection = new ReconversionSelection("よろしくお願いします", "よろしくおねがいします");
+        k.Press(VirtualKeys.Convert);
+
+        Assert.Equal("よろしくお願いします", k.Host.View!.Text, "未キャッシュの再変換は元の文のまま待つ");
+        Assert.Equal("翻訳中(韓国語)…", k.Host.View.ContextHint);
+
+        translator.Complete(TranslationTarget.Korean, "よろしくお願いします", "잘 부탁드립니다");
+        k.NotifyConversionFinished();
+        Assert.Equal("잘 부탁드립니다", k.Host.View!.Text, "完了時に自動で訳文へ差し替わる");
+        Assert.Equal("よろしくお願いします", k.Host.View.Candidates[1]);
+        Assert.Equal("翻訳(韓国語)", k.Host.View.ContextHint);
+    }
+
+    [Test]
+    public static void LlamaServerTranslator_SelectsChatTemplateByModelAndCleansOutput()
+    {
+        var (qwenPrompt, qwenStops) = LlamaServerTranslator.BuildPromptAndStops("Qwen2.5-1.5B-Instruct-Q4_K_M.gguf", TranslationTarget.English, "こんにちは");
+        Assert.True(qwenPrompt.Contains("<|im_start|>user", StringComparison.Ordinal), qwenPrompt);
+        Assert.True(qwenStops.Contains("<|im_end|>"), string.Join(",", qwenStops));
+
+        var (gemmaPrompt, gemmaStops) = LlamaServerTranslator.BuildPromptAndStops("gemma-3-1b-it.gguf", TranslationTarget.Korean, "こんにちは");
+        Assert.True(gemmaPrompt.Contains("<start_of_turn>user", StringComparison.Ordinal), gemmaPrompt);
+        Assert.True(gemmaStops.Contains("<end_of_turn>"), string.Join(",", gemmaStops));
+
+        var (llamaPrompt, llamaStops) = LlamaServerTranslator.BuildPromptAndStops("Llama-3.2-1B.gguf", TranslationTarget.French, "こんにちは");
+        Assert.True(llamaPrompt.Contains("<|start_header_id|>user<|end_header_id|>", StringComparison.Ordinal), llamaPrompt);
+        Assert.True(llamaStops.Contains("<|eot_id|>"), string.Join(",", llamaStops));
+
+        Assert.Equal("Hello", LlamaServerTranslator.CleanOutput("<think>考え中</think> \"Hello\"", TranslationTarget.English), "思考タグと引用符を除去する");
+        Assert.Equal("감사합니다", LlamaServerTranslator.CleanOutput("Korean: 감사합니다", TranslationTarget.Korean));
+        Assert.Equal("", LlamaServerTranslator.CleanOutput("こんにちは", TranslationTarget.English), "英字が無い出力は失敗扱い");
+        Assert.Equal("", LlamaServerTranslator.CleanOutput("ありがとうございます", TranslationTarget.Korean), "ハングルが無い出力は失敗扱い");
+        Assert.Equal("", LlamaServerTranslator.CleanOutput("これはテストです", TranslationTarget.Chinese), "かなが残る中国語出力は失敗扱い");
+        Assert.Equal("谢谢", LlamaServerTranslator.CleanOutput("谢谢", TranslationTarget.Chinese));
     }
 }

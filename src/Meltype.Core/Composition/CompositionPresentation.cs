@@ -70,7 +70,11 @@ internal static class CompositionPresentation
         // 出している文節に Zenzai の答えや翻訳モードがあれば、説明の頭にバッジを出す (学習・選び直しで変わった文節は数えない。issue #1152)
         var zenzai = conversion.Clauses.Any(c => c.ZenzaiText is { } z && (c.Text == z || c.Text == c.LlmTranslationText));
         var translated = conversion.Clauses.Any(c => c.LlmTranslationText is { } t && c.Text == t);
-        var transLabel = translated ? $"翻訳({Engine.TranslationTargetExtensions.ShortLabel(env.Settings.TranslationMode)})" : null;
+        var translating = !translated && env.Settings.TranslationMode != TranslationTarget.Off && env.Services.TextTranslator is { } translator &&
+            translator.IsTranslating(string.Concat(conversion.Clauses.Select(c => c.Text)), env.Settings.TranslationMode);
+        var transLabel = translated ? $"翻訳({Engine.TranslationTargetExtensions.ShortLabel(env.Settings.TranslationMode)})"
+            : translating ? $"翻訳中({Engine.TranslationTargetExtensions.ShortLabel(env.Settings.TranslationMode)})…"
+            : null;
         var badge = (zenzai, transLabel) switch
         {
             (true, not null) => $"Zenzai · {transLabel}",

@@ -37,7 +37,8 @@ internal static class CompositionConversion
         text.Any(char.IsAsciiLetter) && text.All(c => c is >= ' ' and <= '~') && text.Trim().Length > 0;
 
     /// <summary>
-    /// 翻訳モードが ON のとき、選択済みの日本語文をキャッシュ済み翻訳で直接候補に出す (未キャッシュならバックグラウンド翻訳を予約して false を返す)。
+    /// 翻訳モードが ON のとき、選択済みの日本語文を直接翻訳候補に出す。
+    /// 未キャッシュのときはバックグラウンド翻訳を予約して元の文のまま開き、完了時に <see cref="CompositionRefresh"/> で訳文を差し込む。
     /// </summary>
     internal static bool StartTranslationReconversion(CompositionState state, CompositionEnv env, ReconversionSelection selection)
     {
@@ -47,18 +48,27 @@ internal static class CompositionConversion
             selection.Text.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
             selection.Text.Contains("https://", StringComparison.OrdinalIgnoreCase))
             return false;
-        if (translator.TranslateOrRequest(selection.Text, env.Settings.TranslationMode, env.Settings.TranslationModelPath) is not { } translated)
+        var translated = translator.TranslateOrRequest(selection.Text, env.Settings.TranslationMode, env.Settings.TranslationModelPath);
+        if (translated is null && !translator.IsTranslating(selection.Text, env.Settings.TranslationMode))
             return false;
         var input = CompositionLifecycle.Begin(state, env, reconversion: selection);
         input.Text = CompositionText.AppendReading(input.Text, selection.Reading) with { Mode = DisplayMode.Hiragana };
-        var clause = new Clause(selection.Reading, false, [translated, selection.Text])
-        {
-            LlmTranslationText = translated,
-            LlmTranslationSource = selection.Text,
-            Expanded = true,
-            Fixed = true,
-        };
-        clause.NotLearned.Add(translated);
+        var clause = translated is not null
+            ? new Clause(selection.Reading, false, [translated, selection.Text])
+            {
+                LlmTranslationText = translated,
+                LlmTranslationSource = selection.Text,
+                Expanded = true,
+                Fixed = true,
+            }
+            : new Clause(selection.Reading, false, [selection.Text])
+            {
+                LlmTranslationSource = selection.Text,
+                LlmTranslationPending = true,
+                Expanded = true,
+                Fixed = true,
+            };
+        if (translated is not null) clause.NotLearned.Add(translated);
         CompositionLifecycle.Convert(state, input, new Conversion([clause], ConversionTrigger.Other, preferJapanese: true));
         return true;
     }

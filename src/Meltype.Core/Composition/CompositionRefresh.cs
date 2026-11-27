@@ -27,6 +27,23 @@ internal static class CompositionRefresh
     private static bool RefreshOpenConversion(CompositionState state, CompositionScene.Converting scene, CompositionEnv env)
     {
         var open = scene.Conversion;
+        if (scene.Input.Reconversion is not null && open.Clauses is [{ LlmTranslationPending: true, LlmTranslationSource: { } source } pending])
+        {
+            if (env.Settings.TranslationMode == Config.TranslationTarget.Off || env.Services.TextTranslator is not { } translator)
+                return false;
+            if (translator.TranslateOrRequest(source, env.Settings.TranslationMode, env.Settings.TranslationModelPath) is not { } translated)
+                return false;
+            var updated = new Clause(pending.Reading, false, [translated, source])
+            {
+                LlmTranslationText = translated,
+                LlmTranslationSource = source,
+                Expanded = true,
+                Fixed = true,
+            };
+            updated.NotLearned.Add(translated);
+            CompositionLifecycle.Convert(state, scene.Input, new Conversion([updated], open.StartedBy, open.PreferJapanese));
+            return true;
+        }
         if (open.Edited || scene.Input.Reconversion is not null || open.Clauses is [{ Alternatives: not null, Changed: true }]) return false;
         var incoming = CompositionConversion.BuildConversion(scene.Input, env.WithoutWaiting(), open.StartedBy, open.PreferJapanese);
         var merged = Merge(open, incoming, CompositionConversion.InitialClause(env, open.Clauses.Count));

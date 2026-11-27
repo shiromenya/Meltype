@@ -287,6 +287,8 @@ internal static class CompositionTests
             set => Send(value ? new ImeEvent.AlphanumericModeSelected() : new ImeEvent.JapaneseModeSelected());
         }
 
+        public void NotifyConversionFinished() => Send(new ImeEvent.ConversionFinished());
+
         /// <summary>先頭か空白の直後の / $ @ で始まる語をそのまま入力するか (設定の SigilWordsDirect)。</summary>
         public bool SigilWords { get => Settings.SigilWordsDirect; set => Settings.SigilWordsDirect = value; }
 

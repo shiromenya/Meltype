@@ -74,6 +74,9 @@ internal sealed class Clause(string reading, bool isEnglish, List<string> candid
     /// <summary>ローカル LLM 翻訳モードで翻訳した元の日本語文 (候補の意味欄に出す)。</summary>
     public string? LlmTranslationSource { get; set; }
 
+    /// <summary>選択テキストの翻訳再変換で、バックグラウンド翻訳の完了待ち中か。</summary>
+    public bool LlmTranslationPending { get; set; }
+
     /// <summary>英日の区切りの案ごとの文を候補にした、文全体の文節なら、候補の文 → その案の文節。</summary>
     public Dictionary<string, List<Clause>>? Alternatives { get; init; }
 }

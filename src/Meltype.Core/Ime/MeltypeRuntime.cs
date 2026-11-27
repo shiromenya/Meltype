@@ -132,6 +132,13 @@ public sealed class MeltypeRuntime : IDisposable
     {
         var converter = CreateConverter(appDirectory, mozc);
         _converter = converter;
+        if (_textTranslator is null)
+        {
+            SetTextTranslator(new LlamaServerTranslator(
+                DataDirectory,
+                () => ZenzaiBundle.ServerPath(Settings.Current.ZenzaiServerPath, appDirectory),
+                () => Settings.Current.ZenzaiDevice));
+        }
         converter.WarmUp();
         return converter.MozcInstalled;
     }

@@ -437,7 +437,7 @@ internal sealed class ZenzaiConverter : IKanjiConverter, IDisposable
         lock (_gate) { _failures = 3; }
     }
 
-    private static int FreePort()
+    internal static int FreePort()
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
@@ -587,7 +587,7 @@ internal sealed class ZenzaiConverter : IKanjiConverter, IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
 
-    private static void Kill(Process process)
+    internal static void Kill(Process process)
     {
         try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception) { }
     }

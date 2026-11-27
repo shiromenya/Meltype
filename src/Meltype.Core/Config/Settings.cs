@@ -458,12 +458,12 @@ public sealed class Settings
      Description("GPU 版 (Vulkan・CUDA) の llama-server で、計算に使う GPU の名前 (例: Vulkan0)。llama-server の --device に渡し、GPU に載せる量は llama-server が空いているメモリに合わせて決めます。空なら CPU だけで計算します (既定)。名前は llama-server --list-devices で確かめられます。変えると llama-server を起動し直します。")]
     public string ZenzaiDevice { get; set; } = "";
 
-    [Category("5. 変換"), DisplayName("翻訳モード"), Platforms(Platform.Windows),
-     Description("OFF 以外にすると、Space で変換した日本語文を指定した言語へローカル LLM で翻訳した候補を先頭に出します (元の日本語も候補に残るので Space で戻せます)。OFF にするとモデルを解放します。既定は OFF です。")]
+    [Category("5. 変換"), DisplayName("翻訳モード"),
+     Description("OFF 以外にすると、Space で変換した日本語文を指定した言語へローカル LLM (llama-server) で翻訳した候補を先頭に出します (元の日本語も候補に残るので Space で戻せます)。OFF にするとサーバーを停止してメモリを解放します。既定は OFF です。")]
     public TranslationTarget TranslationMode { get; set; } = TranslationTarget.Off;
 
-    [Category("5. 変換"), DisplayName("翻訳: モデル (GGUF) の場所"), Platforms(Platform.Windows),
-     Description("翻訳モードで使う GGUF モデルのファイルパス。空なら既定のモデル (CAT-Translate-0.8B Q4_K_M) を初回 ON 時に data/models へ取得します。多言語モデルに差し替えると英語以外の精度も上がります。")]
+    [Category("5. 変換"), DisplayName("翻訳: モデル (GGUF) の場所"),
+     Description("翻訳モードで使う GGUF モデルのファイルパス。空なら既定のモデル (CAT-Translate-0.8B Q4_K_M) を初回 ON 時に data/models へ取得します。Qwen・Gemma などの多言語モデルに差し替えると英語以外の精度も上がります。")]
     public string TranslationModelPath { get; set; } = "";
 
     [Category("6. 候補"), DisplayName("予測変換の候補"),
