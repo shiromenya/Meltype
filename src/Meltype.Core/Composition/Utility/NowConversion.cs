@@ -26,8 +26,9 @@ internal sealed class NowConversion : IUtilityConversion
         var slashDate = $"{now.Year:D4}/{now.Month:D2}/{now.Day:D2}";
         var clock = $"{now.Hour:D2}:{now.Minute:D2}";
         var time = $"{now.Hour}時{now.Minute}分";
+        var iso = $"{now.Year:D4}-{now.Month:D2}-{now.Day:D2}T{now.Hour:D2}:{now.Minute:D2}:{now.Second:D2}";
         return [clock, time, $"{(now.Hour < 12 ? "午前" : "午後")}{now.Hour % 12}時{now.Minute}分",
-            $"{date}({day}) {time}", $"{monthDay}({day}) {time}", $"{date}({day}) {clock}", $"{slashDate} {clock}"];
+            $"{date}({day}) {time}", $"{monthDay}({day}) {time}", $"{date}({day}) {clock}", $"{slashDate} {clock}", iso];
     }
 
     /// <summary>今再生している曲の候補 (曲名 / アーティスト、曲名)。読めなければ空。</summary>
