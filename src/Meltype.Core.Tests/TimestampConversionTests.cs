@@ -73,4 +73,33 @@ internal static class TimestampConversionTests
         k.Press(VirtualKeys.Return);
         Assert.Equal("2026-11-27 12:23:35", k.Host.Document);
     }
+
+    [Test]
+    public static void Timestamp_SupportsMicrosecondsNanosecondsCompactDatesAndKeywords()
+    {
+        var kUs = new Keyboard(now: () => FixedUtcNow);
+        kUs.Type("unix(1795782215000000) ");
+        Assert.Equal("2026-11-27 12:23:35", kUs.Host.View!.Text, "16 桁はマイクロ秒として解釈する");
+
+        var kNs = new Keyboard(now: () => FixedUtcNow);
+        kNs.Type("unix(1795782215000000000) ");
+        Assert.Equal("2026-11-27 12:23:35", kNs.Host.View!.Text, "19 桁はナノ秒として解釈する");
+
+        var kCompact8 = new Keyboard(now: () => FixedUtcNow);
+        kCompact8.Type("unix(20261127) ");
+        Assert.True(kCompact8.Host.View!.Candidates.Contains("2026-11-27T00:00:00Z") || kCompact8.Host.View.Candidates.Any(c => c.StartsWith("2026-11-27T00:00:00", StringComparison.Ordinal)),
+            string.Join(",", kCompact8.Host.View.Candidates));
+
+        var kCompact14 = new Keyboard(now: () => FixedUtcNow);
+        kCompact14.Type("iso(20261127122335) ");
+        Assert.True(kCompact14.Host.View!.Candidates.Contains("2026-11-27T12:23:35Z"), string.Join(",", kCompact14.Host.View.Candidates));
+
+        var kTomorrow = new Keyboard(now: () => FixedUtcNow);
+        kTomorrow.Type("iso(tomorrow) ");
+        Assert.True(kTomorrow.Host.View!.Candidates.Contains("2026-11-28T00:00:00+00:00"), string.Join(",", kTomorrow.Host.View.Candidates));
+
+        var kNow = new Keyboard(now: () => FixedUtcNow);
+        kNow.Type("unix(now) ");
+        Assert.Equal("1795782215", kNow.Host.View!.Text);
+    }
 }

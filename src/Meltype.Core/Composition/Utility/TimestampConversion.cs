@@ -46,8 +46,14 @@ internal sealed class TimestampConversion : IUtilityConversion
         if (name is not ("iso" or "unix" or "epoch")) return null;
         var arg = ToHalfWidthAscii(trimmed[(open + 1)..^1]).Trim();
 
-        if (arg.Length == 0)
+        if (arg.Length == 0 || arg.Equals("now", StringComparison.OrdinalIgnoreCase))
             return FormatCurrent(now, preferUnix: name is "unix" or "epoch");
+
+        if (TryParseRelativeKeyword(arg, now, out var fromKeyword))
+            return fromKeyword;
+
+        if (TryParseCompactDate(arg, now, out var fromCompact))
+            return fromCompact;
 
         if (name is "unix" or "epoch" && TryParseUnix(arg, now, out var fromUnix))
             return fromUnix;
@@ -80,10 +86,15 @@ internal sealed class TimestampConversion : IUtilityConversion
 
         try
         {
-            // 絶対値 12 桁以上 (100_000_000_000 = 1973-03-03 以降のミリ秒相当) はミリ秒、それ未満は秒として扱う
-            var utc = Math.Abs(value) >= 100_000_000_000L
-                ? DateTimeOffset.FromUnixTimeMilliseconds(value)
-                : DateTimeOffset.FromUnixTimeSeconds(value);
+            // 桁数で秒 / ミリ秒 / マイクロ秒 / ナノ秒を自動判定する
+            var abs = Math.Abs(value);
+            var utc = abs switch
+            {
+                >= 100_000_000_000_000_000L => DateTimeOffset.FromUnixTimeMilliseconds(value / 1_000_000), // ナノ秒 (18〜19桁)
+                >= 100_000_000_000_000L => DateTimeOffset.FromUnixTimeMilliseconds(value / 1_000),        // マイクロ秒 (15〜17桁)
+                >= 100_000_000_000L => DateTimeOffset.FromUnixTimeMilliseconds(value),                    // ミリ秒 (12〜14桁)
+                _ => DateTimeOffset.FromUnixTimeSeconds(value),                                           // 秒
+            };
             var offset = now.Kind == DateTimeKind.Utc ? TimeSpan.Zero : TimeZoneInfo.Local.GetUtcOffset(utc.UtcDateTime);
             var local = utc.ToOffset(offset);
             candidates = Distinct([
@@ -97,6 +108,36 @@ internal sealed class TimestampConversion : IUtilityConversion
         {
             return false;
         }
+    }
+
+    private static bool TryParseRelativeKeyword(string arg, DateTime now, out List<string> candidates)
+    {
+        candidates = [];
+        var offsetDays = arg.ToLowerInvariant() switch
+        {
+            "today" => 0,
+            "tomorrow" => 1,
+            "yesterday" => -1,
+            _ => int.MinValue,
+        };
+        if (offsetDays == int.MinValue) return false;
+        var baseDto = ToDateTimeOffset(now);
+        var targetDate = baseDto.Date.AddDays(offsetDays);
+        candidates = FormatFromDateTimeOffset(new DateTimeOffset(targetDate, baseDto.Offset));
+        return true;
+    }
+
+    private static bool TryParseCompactDate(string arg, DateTime now, out List<string> candidates)
+    {
+        candidates = [];
+        if (arg.Length is not (8 or 14) || !arg.All(char.IsAsciiDigit)) return false;
+        var format = arg.Length == 8 ? "yyyyMMdd" : "yyyyMMddHHmmss";
+        if (!DateTime.TryParseExact(arg, format, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+            return false;
+        if (dt.Year is < 1970 or > 2100) return false;
+        var offset = now.Kind == DateTimeKind.Utc ? TimeSpan.Zero : TimeZoneInfo.Local.GetUtcOffset(dt);
+        candidates = FormatFromDateTimeOffset(new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Unspecified), offset));
+        return true;
     }
 
     private static bool TryParseDateTime(string arg, DateTime now, out List<string> candidates)
