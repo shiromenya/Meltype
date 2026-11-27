@@ -274,23 +274,133 @@ internal static class UtilityConversionTests
     }
 
     [Test]
-    public static void BaseConversion_ConvertsDigitsToBases2Through16()
+    public static void BaseConversion_ConvertsRepresentativeBasesAndExplicitQueries()
     {
-        var candidates255 = BaseConversion.Candidates("255");
-        Assert.Equal(14, candidates255.Count, "10進数を除く 2〜16 進数の 14 個が出る");
-        Assert.Equal("11111111(2進数)", candidates255[0]);
-        Assert.True(candidates255.Contains("377(8進数)") && candidates255.Contains("FF(16進数)"), string.Join(",", candidates255));
-        Assert.Equal("101010(2進数)", BaseConversion.Candidates("４２")[0], "全角数字も変換できる");
-        Assert.Equal(0, BaseConversion.Candidates("001").Count, "先頭 0 埋めは変換しない");
-        Assert.Equal(0, BaseConversion.Candidates("1").Count, "0・1 は変換しない");
-        Assert.Equal(0, BaseConversion.Candidates("255a").Count, "数字以外は変換しない");
+        // 数字のみは代表 3 進数 (2・8・16) に絞る
+        Assert.Equal("11111111(2進数)|377(8進数)|FF(16進数)", string.Join("|", BaseConversion.DigitsCandidates("255")));
+        Assert.Equal("101010(2進数)", BaseConversion.DigitsCandidates("４２")[0], "全角数字も変換できる");
+        Assert.Equal(0, BaseConversion.DigitsCandidates("001").Count, "先頭 0 埋めは変換しない");
+        Assert.Equal(0, BaseConversion.DigitsCandidates("1").Count, "0・1 は変換しない");
 
+        // 関数形式: base(値, n) と base(値, m, n)
+        Assert.Equal("FF|0xFF|FF(16進数)", string.Join("|", BaseConversion.FunctionCandidates("base(255,16)")));
+        Assert.Equal("513|513(7進数)", string.Join("|", BaseConversion.FunctionCandidates("base(255,7)")));
+        Assert.Equal("11111111|0b11111111|11111111(2進数)", string.Join("|", BaseConversion.FunctionCandidates("base(ff,16,2)")));
+        Assert.Equal("11111111|0b11111111|11111111(2進数)", string.Join("|", BaseConversion.FunctionCandidates("BASE(FF,16,2)")));
+        Assert.Equal("255|255(10進数)", string.Join("|", BaseConversion.FunctionCandidates("base(ff,16,10)")));
+        Assert.Equal("10|10(10進数)", string.Join("|", BaseConversion.FunctionCandidates("base(1010,2,10)")));
+        Assert.Equal(0, BaseConversion.FunctionCandidates("mybase(255,16)").Count);
+        Assert.Equal(0, BaseConversion.FunctionCandidates("base(gg,16,10)").Count);
+        Assert.Equal(0, BaseConversion.FunctionCandidates("base(255,37)").Count);
+
+        // リテラル形式: 0xff / 0b1010 / 0o377
+        Assert.Equal("255(10進数)|11111111(2進数)|377(8進数)", string.Join("|", BaseConversion.LiteralCandidates("0xff")));
+        Assert.Equal("10(10進数)|12(8進数)|A(16進数)", string.Join("|", BaseConversion.LiteralCandidates("0b1010")));
+        Assert.Equal("255(10進数)|11111111(2進数)|FF(16進数)", string.Join("|", BaseConversion.LiteralCandidates("0o377")));
+
+        // 実キー: 255を7しんすう → 第一候補が 513
+        var readingQuery = new Keyboard();
+        readingQuery.Type("255wo7sinnsuu ");
+        Assert.Equal("513", readingQuery.Host.View!.Candidates[0], "読み絞り込みは第一候補に出る");
+        Assert.True(readingQuery.Host.View.Candidates.Contains("513(7進数)"), string.Join(",", readingQuery.Host.View.Candidates));
+
+        // 実キー: base(ff,16,2) → Space 1 回および Tab → Enter で 11111111 を確定
+        var spaceFunc = new Keyboard();
+        spaceFunc.Type("base(ff,16,2) ");
+        Assert.Equal("11111111", spaceFunc.Host.View!.Candidates[0]);
+        spaceFunc.Press(VirtualKeys.Return);
+        Assert.Equal("11111111", spaceFunc.Host.Document);
+
+        var predFunc = new Keyboard();
+        predFunc.Settings.PredictiveCandidates = true;
+        predFunc.Type("base(ff,16,2)");
+        Assert.Equal("11111111|0b11111111|11111111(2進数)", string.Join("|", predFunc.Host.View!.Predictions!));
+        predFunc.Press(VirtualKeys.Tab);
+        predFunc.Press(VirtualKeys.Return);
+        Assert.Equal("11111111", predFunc.Host.Document);
+
+        // 実キー: 0xff は Space で英数字確定+空白を維持し、変換キーや予測 Tab で 255(10進数) を選べる
+        var litSpace = new Keyboard();
+        litSpace.Type("0xff ");
+        Assert.Equal("0xff ", litSpace.Host.Document, "0xff + Space は英数字確定のまま邪魔しない");
+        var litConvert = new Keyboard();
+        litConvert.Type("0xff");
+        litConvert.Press(VirtualKeys.Convert);
+        Assert.Equal("0xff", litConvert.Host.View!.Candidates[0]);
+        Assert.True(litConvert.Host.View.Candidates.Contains("255(10進数)"), string.Join(",", litConvert.Host.View.Candidates));
+
+        // 学習しないことの確認
         var history = new ConversionHistory(null);
         var phrases = new PhraseHistory(null);
-        var k = new Keyboard(history: history, predictor: new Predictor(phrases, null, history));
-        k.Type("255 ");
-        Assert.True(k.Host.View!.Candidates.Contains("11111111(2進数)") && k.Host.View.Candidates.Contains("FF(16進数)"), string.Join(",", k.Host.View.Candidates));
         Choose(new Keyboard(history: history, predictor: new Predictor(phrases, null, history)), "255", "FF(16進数)");
         Assert.True(history.Get("255") is null && !phrases.StartingWith("255").Any(), "n進数変換は学習しない");
+    }
+
+    [Test]
+    public static void ColorConversion_ConvertsHexRgbAndHsl()
+    {
+        Assert.Equal("#dadada|#DADADA|rgb(218, 218, 218)|hsl(0, 0%, 85%)", string.Join("|", ColorConversion.Candidates("hex(dadada)")));
+        Assert.Equal("#dadada|#DADADA|rgb(218, 218, 218)|hsl(0, 0%, 85%)", string.Join("|", ColorConversion.Candidates("HEX(dadada)")));
+        Assert.Equal("#000000|rgb(0, 0, 0)|hsl(0, 0%, 0%)", string.Join("|", ColorConversion.Candidates("hex(000000)")));
+        Assert.Equal("#f00|#ff0000|#FF0000|rgb(255, 0, 0)|hsl(0, 100%, 50%)", string.Join("|", ColorConversion.Candidates("hex(f00)")));
+        Assert.Equal("#f008|#ff000088|#FF000088|rgba(255, 0, 0, 0.533)|hsla(0, 100%, 50%, 0.533)", string.Join("|", ColorConversion.Candidates("hex(f008)")));
+        Assert.Equal("#3b82f6|#3B82F6|rgb(59, 130, 246)|hsl(217, 91%, 60%)", string.Join("|", ColorConversion.Candidates("rgb(59,130,246)")));
+        Assert.Equal("#3c83f6|#3C83F6|rgb(60, 131, 246)|hsl(217, 91%, 60%)", string.Join("|", ColorConversion.Candidates("hsl(217,91%,60%)")));
+        Assert.Equal("#ff000080|#FF000080|rgba(255, 0, 0, 0.5)|hsla(0, 100%, 50%, 0.5)", string.Join("|", ColorConversion.Candidates("rgba(255,0,0,0.5)")));
+
+        // 逆向きの例: 裸の #・未登録の関数名・不正な引数は色変換しない
+        foreach (var nonColor in new[] { "#cafe", "#2422", "#dadada", "#3b82f6", "#123456", "myhex(dadada)", "rgb(akamidoriao)", "rgb(256,0,0)", "hex(12345)" })
+            Assert.Equal(0, ColorConversion.Candidates(nonColor).Count, $"{nonColor} は色変換しない");
+
+        // hex(dadada) で Space 1 回押すと #dadada が第一候補になり確定できる
+        var spaceHex = new Keyboard();
+        spaceHex.Type("hex(dadada) ");
+        Assert.Equal("#dadada", spaceHex.Host.View!.Candidates[0], "Space 1 回で #dadada が第一候補");
+        Assert.Equal("#dadadaff|#dadadaff|#dadadaff|#d9d9d9ff|", string.Join("|", spaceHex.Host.View.Colors!));
+        spaceHex.Press(VirtualKeys.Return);
+        Assert.Equal("#dadada", spaceHex.Host.Document);
+
+        // 予測候補 ON なら Tab → Enter でも #dadada を確定できる (Skip(1) せず変換結果を先頭に出す)
+        var predHex = new Keyboard();
+        predHex.Settings.PredictiveCandidates = true;
+        predHex.Type("hex(dadada)");
+        Assert.Equal("#dadada|#DADADA|rgb(218, 218, 218)|hsl(0, 0%, 85%)", string.Join("|", predHex.Host.View!.Predictions!));
+        Assert.Equal("#dadadaff|#dadadaff|#dadadaff|#d9d9d9ff", string.Join("|", predHex.Host.View.Colors!));
+        predHex.Press(VirtualKeys.Tab);
+        predHex.Press(VirtualKeys.Return);
+        Assert.Equal("#dadada", predHex.Host.Document);
+
+        // rgb(59,130,246)・HEX(dadada) も Space 1 回で変換候補が開き、括弧内の途中 Space は色変換にしない
+        var spaceRgb = new Keyboard();
+        spaceRgb.Type("rgb(59,130,246) ");
+        Assert.Equal("#3b82f6", spaceRgb.Host.View!.Candidates[0]);
+        var upperHex = new Keyboard();
+        upperHex.Type("HEX(dadada) ");
+        Assert.Equal("#dadada", upperHex.Host.View!.Candidates[0]);
+        var midSpace = new Keyboard();
+        midSpace.Type("rgb(59, ");
+        Assert.True(midSpace.Host.View?.Colors is null, "括弧内の途中 Space では色変換にしない");
+
+        // #2422 や #dadada には予測候補も変換候補も色変換を出さず、色見本も付けない
+        var issueHistory = new ConversionHistory(null);
+        var issuePhrases = new PhraseHistory(null);
+        var titles = new GitHubIssueTitles((repo, number) => Task.FromResult<string?>(repo == "yksr-melt/Meltype" && number == 2422 ? "テストIssue" : null));
+        var issueKey = new Keyboard(history: issueHistory, predictor: new Predictor(issuePhrases, null, issueHistory)) { GitHubRepository = "yksr-melt/Meltype", GitHubTitles = titles };
+        issueKey.Type("#2422");
+        Assert.True(issueKey.Host.View!.Predictions is null && issueKey.Host.View.Colors is null, "#2422 の予測候補に色変換を出さない");
+        issueKey.Press(VirtualKeys.Convert);
+        Assert.Equal("#2422", issueKey.Host.View!.Candidates[0]);
+        Assert.True(issueKey.Host.View.Candidates.Contains("#2422 テストIssue"), "GitHub Issue 候補を維持する");
+        Assert.True(issueKey.Host.View.Colors is null, "Issue 参照の候補に色見本を付けない");
+
+        var dadada = new Keyboard();
+        dadada.Type("#dadada ");
+        Assert.True(dadada.Host.View?.Colors is null, "#dadada で色変換を出さない");
+
+        var learnCheck = new Keyboard(history: issueHistory, predictor: new Predictor(issuePhrases, null, issueHistory));
+        learnCheck.Type("hex(dadada) ");
+        learnCheck.Press(VirtualKeys.Return);
+        Assert.Equal("#dadada", learnCheck.Host.Document);
+        Assert.True(issueHistory.Get("hex(dadada)") is null && !issuePhrases.StartingWith("hex(").Any(), "カラーコード変換は学習しない");
     }
 }
