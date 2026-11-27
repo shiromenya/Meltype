@@ -7,7 +7,6 @@ using System.Globalization;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Meltype.Config;
 using Meltype.Diagnostics;
@@ -247,20 +246,23 @@ internal sealed partial class LlamaServerTranslator : ITextTranslator
         try
         {
             var maxTokens = Math.Clamp(japaneseText.Length * 3 + 16, 24, 96);
-            var body = new JsonObject
+            var body = WriteJson(w =>
             {
-                ["messages"] = new JsonArray
-                {
-                    new JsonObject
-                    {
-                        ["role"] = "user",
-                        ["content"] = $"Translate the following Japanese text into {target.PromptLanguageName()}. Output only the translated text.\n\n{japaneseText}",
-                    },
-                },
-                ["temperature"] = 0,
-                ["max_tokens"] = maxTokens,
-                ["stop"] = new JsonArray("\n", "\r"),
-            }.ToJsonString();
+                w.WriteStartObject();
+                w.WriteStartArray("messages");
+                w.WriteStartObject();
+                w.WriteString("role", "user");
+                w.WriteString("content", $"Translate the following Japanese text into {target.PromptLanguageName()}. Output only the translated text.\n\n{japaneseText}");
+                w.WriteEndObject();
+                w.WriteEndArray();
+                w.WriteNumber("temperature", 0);
+                w.WriteNumber("max_tokens", maxTokens);
+                w.WriteStartArray("stop");
+                w.WriteStringValue("\n");
+                w.WriteStringValue("\r");
+                w.WriteEndArray();
+                w.WriteEndObject();
+            });
             using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(endpoint, "v1/chat/completions"))
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json"),
@@ -291,17 +293,19 @@ internal sealed partial class LlamaServerTranslator : ITextTranslator
         {
             var (prompt, stops) = BuildPromptAndStops(modelName, target, japaneseText);
             var maxTokens = Math.Clamp(japaneseText.Length * 3 + 16, 24, 96);
-            var stopArray = new JsonArray();
-            foreach (var s in stops) stopArray.Add(s);
-            var body = new JsonObject
+            var body = WriteJson(w =>
             {
-                ["prompt"] = prompt,
-                ["n_predict"] = maxTokens,
-                ["temperature"] = 0,
-                ["top_k"] = 1,
-                ["cache_prompt"] = true,
-                ["stop"] = stopArray,
-            }.ToJsonString();
+                w.WriteStartObject();
+                w.WriteString("prompt", prompt);
+                w.WriteNumber("n_predict", maxTokens);
+                w.WriteNumber("temperature", 0);
+                w.WriteNumber("top_k", 1);
+                w.WriteBoolean("cache_prompt", true);
+                w.WriteStartArray("stop");
+                foreach (var s in stops) w.WriteStringValue(s);
+                w.WriteEndArray();
+                w.WriteEndObject();
+            });
             using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(endpoint, "completion"))
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json"),
@@ -318,6 +322,13 @@ internal sealed partial class LlamaServerTranslator : ITextTranslator
         {
             return null;
         }
+    }
+
+    private static string WriteJson(Action<Utf8JsonWriter> write)
+    {
+        using var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer)) write(writer);
+        return Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
     }
 
     private async Task InitializeAsync(string modelPath)
