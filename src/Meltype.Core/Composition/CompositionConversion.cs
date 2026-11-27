@@ -184,24 +184,59 @@ internal static class CompositionConversion
             if (input.KeptChoices.TryGetValue(clause.Reading, out var kept) && clause.Candidates.Contains(kept)) Prefer(clause, kept);
         // 打ち始めの ・ は、Space で / にする。
         if (CompositionText.IsSlashAtStart(CompositionText.Read(input.Text, env)) && clauses is [var slash]) Prefer(slash, "/");
-        if (env.Settings.TranslationMode != Config.TranslationTarget.Off && utility is null)
+        if (utility is null)
             clauses = ApplyTextTranslation(input, env, clauses);
         return new Conversion(clauses, trigger, preferJapanese) { Selected = InitialClause(env, clauses.Count) };
     }
 
+    private static readonly (string Suffix, Config.TranslationTarget Target)[] SpotTranslationSuffixes =
+    [
+        ("を英語", Config.TranslationTarget.English),
+        ("をえいご", Config.TranslationTarget.English),
+        ("を中国語", Config.TranslationTarget.Chinese),
+        ("をちゅうごくご", Config.TranslationTarget.Chinese),
+        ("を韓国語", Config.TranslationTarget.Korean),
+        ("をかんこくご", Config.TranslationTarget.Korean),
+        ("をフランス語", Config.TranslationTarget.French),
+        ("をふらんすご", Config.TranslationTarget.French),
+        ("をスペイン語", Config.TranslationTarget.Spanish),
+        ("をすぺいんご", Config.TranslationTarget.Spanish),
+        ("をドイツ語", Config.TranslationTarget.German),
+        ("をどいつご", Config.TranslationTarget.German),
+    ];
+
     /// <summary>
-    /// 翻訳モードが ON のとき、変換結果の日本語文を非同期で翻訳する。
+    /// 変換結果の末尾が「〜を英語 / 〜をえいご」等のスポット翻訳指定なら、前半部分と指定言語を返す。
+    /// 通常の翻訳モードが OFF のときでもスポット翻訳として利用できる。
+    /// </summary>
+    internal static (string Source, Config.TranslationTarget Target)? MatchSpotTranslation(string text)
+    {
+        foreach (var (suffix, target) in SpotTranslationSuffixes)
+        {
+            if (!text.EndsWith(suffix, StringComparison.Ordinal)) continue;
+            var source = text[..^suffix.Length].TrimEnd();
+            if (source.Length >= 2 && !source.All(c => c < 0x80)) return (source, target);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 翻訳モードが ON、または文末が「〜を〇〇語」のスポット翻訳のとき、日本語文を非同期で翻訳する。
     /// 訳文がキャッシュにあれば先頭に差し込み、元の日本語を第 2 候補に残す。訳文は学習しない。
     /// </summary>
     private static List<Clause> ApplyTextTranslation(CompositionInput input, CompositionEnv env, List<Clause> clauses)
     {
         if (env.Services.TextTranslator is not { } translator || clauses.All(c => c.IsEnglish)) return clauses;
         var original = string.Concat(clauses.Select(c => c.Text));
-        if (original.Length < 2 || original.All(c => c < 0x80) ||
-            original.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
-            original.Contains("https://", StringComparison.OrdinalIgnoreCase))
+        var spot = MatchSpotTranslation(original);
+        var target = spot?.Target ?? env.Settings.TranslationMode;
+        if (target == Config.TranslationTarget.Off) return clauses;
+        var source = spot?.Source ?? original;
+        if (source.Length < 2 || source.All(c => c < 0x80) ||
+            source.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
+            source.Contains("https://", StringComparison.OrdinalIgnoreCase))
             return clauses;
-        if (translator.TranslateOrRequest(original, env.Settings.TranslationMode, env.Settings.TranslationModelPath) is not { } translated)
+        if (translator.TranslateOrRequest(source, target, env.Settings.TranslationModelPath) is not { } translated)
             return clauses;
 
         if (clauses is [var single] && single.Alternatives is null)
@@ -210,7 +245,8 @@ internal static class CompositionConversion
             single.Candidates.Insert(0, translated);
             single.Index = 0;
             single.LlmTranslationText = translated;
-            single.LlmTranslationSource = original;
+            single.LlmTranslationSource = source;
+            single.LlmTranslationTarget = target;
             single.NotLearned.Add(translated);
             single.Leading = Math.Max(single.Leading, 1);
             return clauses;
@@ -226,7 +262,8 @@ internal static class CompositionConversion
             Alternatives = alternatives,
             ZenzaiText = hasZenzai ? original : null,
             LlmTranslationText = translated,
-            LlmTranslationSource = original,
+            LlmTranslationSource = source,
+            LlmTranslationTarget = target,
             Expanded = true,
         };
         whole.NotLearned.Add(translated);
@@ -1009,11 +1046,30 @@ internal static class CompositionConversion
     /// ライブ変換: Space を押したときと同じく、文脈・手がかり辞書・学習を使って文節ごとに変換した結果を見せる。
     /// 打つたびに呼ばれるので、1 回の入力の間だけ控えを使う。
     /// </summary>
+    private const int LiveTranslationDebounceMs = 380;
+
     internal static ComposedText LiveConvert(CompositionInput input, CompositionEnv env, string kana, bool afterEnglish, string before)
     {
         // 記号 (～ ! ? …) は数えない。かなが短いうちに記号を足しただけで、的外れな漢字にしない (な～～～ が 名～～～ になっていた: issue #505)
         if (!CountsAsLive(kana)) return ComposedText.Kana(kana);
-        return ComposedText.Concat(LiveClauses(input, env, kana, afterEnglish, before).Select(c => ComposedText.Converted(c.Reading, c.Text)));
+        var converted = ComposedText.Concat(LiveClauses(input, env, kana, afterEnglish, before).Select(c => ComposedText.Converted(c.Reading, c.Text)));
+        return LiveTranslateIfEnabled(env, converted);
+    }
+
+    /// <summary>「翻訳モード」と「翻訳モードでライブ変換中もリアルタイム翻訳」が ON のとき、長めのデバウンス付きでライブ翻訳する。</summary>
+    internal static ComposedText LiveTranslateIfEnabled(CompositionEnv env, ComposedText composed)
+    {
+        if (!env.Settings.LiveTranslation || env.Settings.TranslationMode == Config.TranslationTarget.Off ||
+            env.Services.TextTranslator is not { } translator)
+            return composed;
+        var text = composed.Text;
+        if (text.Length < 2 || text.All(c => c < 0x80) ||
+            text.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("https://", StringComparison.OrdinalIgnoreCase))
+            return composed;
+        return translator.TranslateOrRequest(text, env.Settings.TranslationMode, env.Settings.TranslationModelPath, LiveTranslationDebounceMs) is { } translated
+            ? ComposedText.Of(SpanKind.English, translated)
+            : composed;
     }
 
     /// <summary>

@@ -27,7 +27,7 @@ internal static class TextTranslationTests
         public void StopIfUnused() => Stopped = true;
         public bool IsTranslating(string japaneseText, TranslationTarget target) => Pending.Contains((target, japaneseText));
 
-        public string? TranslateOrRequest(string japaneseText, TranslationTarget target, string modelPath)
+        public string? TranslateOrRequest(string japaneseText, TranslationTarget target, string modelPath, int debounceMs = 120)
         {
             Requests.Add((target, japaneseText, modelPath));
             if (Results.TryGetValue((target, japaneseText), out var translated)) return translated;
@@ -210,5 +210,50 @@ internal static class TextTranslationTests
         Assert.Equal("", LlamaServerTranslator.CleanOutput("ありがとうございます", TranslationTarget.Korean), "ハングルが無い出力は失敗扱い");
         Assert.Equal("", LlamaServerTranslator.CleanOutput("これはテストです", TranslationTarget.Chinese), "かなが残る中国語出力は失敗扱い");
         Assert.Equal("谢谢", LlamaServerTranslator.CleanOutput("谢谢", TranslationTarget.Chinese));
+    }
+
+    [Test]
+    public static void TranslationMode_SpotTranslationWorksEvenWhenModeIsOff()
+    {
+        var translator = new FakeTranslator();
+        translator.Results[(TranslationTarget.Korean, "ありがとう")] = "감사합니다";
+        var converter = new MapConverter(new()
+        {
+            ["ありがとうをかんこくご"] = [new("ありがとう", "ありがとう"), new("を", "を"), new("かんこくご", "韓国語")],
+        });
+
+        var k = new Keyboard(converter: converter, textTranslator: translator);
+        Assert.Equal(TranslationTarget.Off, k.Settings.TranslationMode);
+        k.Type("arigatouwokankokugo ");
+
+        Assert.Equal("감사합니다", k.Host.View!.Text, "翻訳モード OFF でも 〇〇を〇〇語 でスポット翻訳できる");
+        Assert.Equal("ありがとうを韓国語", k.Host.View.Candidates[1]);
+        Assert.Equal("原文: ありがとう", k.Host.View.Meaning);
+        Assert.Equal("翻訳(韓国語)", k.Host.View.ContextHint);
+        k.Press(VirtualKeys.Space);
+        Assert.Equal("ありがとうを韓国語", k.Host.View.Text, "Space で元の表現に戻せる");
+    }
+
+    [Test]
+    public static void TranslationMode_LiveTranslationTranslatesWhenEnabled()
+    {
+        var translator = new FakeTranslator();
+        var converter = new MapConverter(new() { ["こんにちは"] = [new("こんにちは", "こんにちは")] });
+
+        var k = new Keyboard(live: true, converter: converter, textTranslator: translator);
+        k.Settings.TranslationMode = TranslationTarget.English;
+        k.Settings.LiveTranslation = false;
+        k.Type("konnnichiha");
+        Assert.Equal("こんにちは", k.Host.View!.Text, "LiveTranslation OFF ではライブ中に翻訳しない");
+
+        k.Press(VirtualKeys.Escape);
+        k.Settings.LiveTranslation = true;
+        k.Type("konnnichiha");
+        Assert.Equal("こんにちは", k.Host.View!.Text, "未キャッシュ時は日本語を出しつつ裏で翻訳を予約する");
+        translator.Complete(TranslationTarget.English, "こんにちは", "Hello");
+        k.NotifyConversionFinished();
+        Assert.Equal("Hello", k.Host.View!.Text, "ライブ翻訳完了後にリアルタイムで訳文へ切り替わる");
+        k.Press(VirtualKeys.Return);
+        Assert.Equal("Hello", k.Host.Document);
     }
 }

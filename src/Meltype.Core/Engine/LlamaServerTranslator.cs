@@ -129,7 +129,7 @@ internal sealed partial class LlamaServerTranslator : ITextTranslator
         DeletePidFile(pidFile);
     }
 
-    public string? TranslateOrRequest(string japaneseText, TranslationTarget target, string modelPath)
+    public string? TranslateOrRequest(string japaneseText, TranslationTarget target, string modelPath, int debounceMs = DebounceMs)
     {
         if (_disposed || target == TranslationTarget.Off || string.IsNullOrWhiteSpace(japaneseText))
             return null;
@@ -151,14 +151,14 @@ internal sealed partial class LlamaServerTranslator : ITextTranslator
 
         if (_endpoint is null) return null;
 
-        ScheduleTranslation(target, normalized);
+        ScheduleTranslation(target, normalized, debounceMs);
         return null;
     }
 
     private static string NormalizeKey(string text) =>
         text.Trim().TrimEnd('。', '．', '、', '，');
 
-    private void ScheduleTranslation(TranslationTarget target, string japaneseText)
+    private void ScheduleTranslation(TranslationTarget target, string japaneseText, int debounceMs)
     {
         CancellationTokenSource cts;
         CancellationToken token;
@@ -175,15 +175,15 @@ internal sealed partial class LlamaServerTranslator : ITextTranslator
             _translatingKey = key;
         }
 
-        _ = Task.Run(() => RunDebouncedTranslationAsync(target, japaneseText, cts, token));
+        _ = Task.Run(() => RunDebouncedTranslationAsync(target, japaneseText, debounceMs, cts, token));
     }
 
-    private async Task RunDebouncedTranslationAsync(TranslationTarget target, string japaneseText, CancellationTokenSource cts, CancellationToken ct)
+    private async Task RunDebouncedTranslationAsync(TranslationTarget target, string japaneseText, int debounceMs, CancellationTokenSource cts, CancellationToken ct)
     {
         var key = (target, japaneseText);
         try
         {
-            await Task.Delay(DebounceMs, ct).ConfigureAwait(false);
+            await Task.Delay(Math.Max(0, debounceMs), ct).ConfigureAwait(false);
             var endpoint = _endpoint;
             var modelName = Path.GetFileName(_loadedModelPath ?? _defaultModelPath);
             if (_disposed || endpoint is null || ct.IsCancellationRequested) return;

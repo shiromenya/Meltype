@@ -74,6 +74,9 @@ internal sealed class Clause(string reading, bool isEnglish, List<string> candid
     /// <summary>ローカル LLM 翻訳モードで翻訳した元の日本語文 (候補の意味欄に出す)。</summary>
     public string? LlmTranslationSource { get; set; }
 
+    /// <summary>ローカル LLM 翻訳で翻訳した先言語 (スポット翻訳時のヒント表示にも使う)。</summary>
+    public Config.TranslationTarget LlmTranslationTarget { get; set; }
+
     /// <summary>選択テキストの翻訳再変換で、バックグラウンド翻訳の完了待ち中か。</summary>
     public bool LlmTranslationPending { get; set; }
 

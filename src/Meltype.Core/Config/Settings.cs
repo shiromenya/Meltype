@@ -462,6 +462,10 @@ public sealed class Settings
      Description("OFF 以外にすると、Space で変換した日本語文を指定した言語へローカル LLM (llama-server) で翻訳した候補を先頭に出します (元の日本語も候補に残るので Space で戻せます)。OFF にするとサーバーを停止してメモリを解放します。既定は OFF です。")]
     public TranslationTarget TranslationMode { get; set; } = TranslationTarget.Off;
 
+    [Category("5. 変換"), DisplayName("翻訳モードでライブ変換中もリアルタイム翻訳"),
+     Description("「翻訳モード」と「ライブ変換」が ON のとき、Space を押さなくても打っている途中で長めの待機 (約 380ms) を置いてリアルタイムに翻訳します。既定は OFF (Space で変換したときだけ翻訳) です。")]
+    public bool LiveTranslation { get; set; }
+
     [Category("5. 変換"), DisplayName("翻訳: モデル (GGUF) の場所"),
      Description("翻訳モードで使う GGUF モデルのファイルパス。空なら既定のモデル (CAT-Translate-0.8B Q4_K_M) を初回 ON 時に data/models へ取得します。Qwen・Gemma などの多言語モデルに差し替えると英語以外の精度も上がります。")]
     public string TranslationModelPath { get; set; } = "";

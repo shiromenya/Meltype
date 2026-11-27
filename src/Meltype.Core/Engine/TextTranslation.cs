@@ -28,7 +28,7 @@ public interface ITextTranslator : IDisposable
     /// 指定した日本語文の訳文がキャッシュにあれば返す。
     /// キャッシュにない場合はバックグラウンド翻訳を予約して null を返す。
     /// </summary>
-    string? TranslateOrRequest(string japaneseText, TranslationTarget target, string modelPath);
+    string? TranslateOrRequest(string japaneseText, TranslationTarget target, string modelPath, int debounceMs = 120);
 
     /// <summary>指定した日本語文がいま翻訳待ち・翻訳中であるか。</summary>
     bool IsTranslating(string japaneseText, TranslationTarget target);

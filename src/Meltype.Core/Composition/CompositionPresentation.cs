@@ -69,11 +69,17 @@ internal static class CompositionPresentation
         if (!selected.Expanded) CompositionConversion.Expand(env, selected);
         // 出している文節に Zenzai の答えや翻訳モードがあれば、説明の頭にバッジを出す (学習・選び直しで変わった文節は数えない。issue #1152)
         var zenzai = conversion.Clauses.Any(c => c.ZenzaiText is { } z && (c.Text == z || c.Text == c.LlmTranslationText));
-        var translated = conversion.Clauses.Any(c => c.LlmTranslationText is { } t && c.Text == t);
-        var translating = !translated && env.Settings.TranslationMode != TranslationTarget.Off && env.Services.TextTranslator is { } translator &&
-            translator.IsTranslating(string.Concat(conversion.Clauses.Select(c => c.Text)), env.Settings.TranslationMode);
-        var transLabel = translated ? $"翻訳({Engine.TranslationTargetExtensions.ShortLabel(env.Settings.TranslationMode)})"
-            : translating ? $"翻訳中({Engine.TranslationTargetExtensions.ShortLabel(env.Settings.TranslationMode)})…"
+        var translatedClause = conversion.Clauses.FirstOrDefault(c => c.LlmTranslationText is { } t && c.Text == t);
+        var translated = translatedClause is not null;
+        var rawText = string.Concat(conversion.Clauses.Select(c => c.Text));
+        var spot = CompositionConversion.MatchSpotTranslation(rawText);
+        var activeTarget = translatedClause is { LlmTranslationTarget: not TranslationTarget.Off }
+            ? translatedClause.LlmTranslationTarget
+            : spot?.Target ?? env.Settings.TranslationMode;
+        var translating = !translated && activeTarget != TranslationTarget.Off && env.Services.TextTranslator is { } translator &&
+            translator.IsTranslating(spot?.Source ?? rawText, activeTarget);
+        var transLabel = translated ? $"翻訳({Engine.TranslationTargetExtensions.ShortLabel(activeTarget)})"
+            : translating ? $"翻訳中({Engine.TranslationTargetExtensions.ShortLabel(activeTarget)})…"
             : null;
         var badge = (zenzai, transLabel) switch
         {
@@ -248,7 +254,7 @@ internal static class CompositionPresentation
     /// </summary>
     internal static ComposedText CommittedDisplay(CompositionInput input, CompositionEnv env) => env.LateResults
         ? CompositionText.Compose(CompositionText.Read(input.Text, env), env, final: true, env.Settings.LiveConversion
-            ? (kana, afterEnglish, shown) => CompositionConversion.CountsAsLive(kana) ? Composed(CompositionConversion.ConvertJapaneseSegment(input, env, kana, afterEnglish, CompositionConversion.SegmentBefore(env, shown), zenzai: true)) : ComposedText.Kana(kana)
+            ? (kana, afterEnglish, shown) => CompositionConversion.CountsAsLive(kana) ? CompositionConversion.LiveTranslateIfEnabled(env, Composed(CompositionConversion.ConvertJapaneseSegment(input, env, kana, afterEnglish, CompositionConversion.SegmentBefore(env, shown), zenzai: true))) : ComposedText.Kana(kana)
             : null)
         : CurrentComposed(input, env, final: true);
 
