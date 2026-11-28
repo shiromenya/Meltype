@@ -208,7 +208,7 @@ internal static class CompositionLifecycle
     /// <summary>入力を終える (確定した・取り消した)。</summary>
     internal static void Finish(CompositionState state)
     {
-        state.Braille.CancelPrefix();
+        state.Braille.ClearMode();
         state.Scene = Idle(IsDirect(state));
     }
 

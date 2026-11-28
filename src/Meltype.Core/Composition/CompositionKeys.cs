@@ -502,7 +502,8 @@ internal static class CompositionKeys
             var brailleStroke = state.Braille.Down(position, state.Shift);
             if (!brailleStroke.Handled)
             {
-                state.Braille.CancelPrefix();
+                // BackSpace で既に入力済みの文字を消すときは数符/外字符の連続モードを保ち、Space 等の区切りでは解除する
+                if (e.Vk != VirtualKeys.Back) state.Braille.ClearMode();
                 return !state.Shift && Detection.KanaDetector.IsKanaKey(position);
             }
             ApplyKanaStroke(state, env, brailleStroke);

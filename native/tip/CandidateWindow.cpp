@@ -253,14 +253,9 @@ void AnnounceCandidate(HWND hwnd, const std::wstring& text) {
 
     using HostProviderFn = HRESULT(WINAPI*)(HWND, IUnknown**);
     using RaiseNotificationFn = HRESULT(WINAPI*)(IUnknown*, int, int, BSTR, BSTR);
-    static const auto hostFn = []() -> HostProviderFn {
-        HMODULE uia = LoadLibraryW(L"UIAutomationCore.dll");
-        return uia ? reinterpret_cast<HostProviderFn>(GetProcAddress(uia, "UiaHostProviderFromHwnd")) : nullptr;
-    }();
-    static const auto notifyFn = []() -> RaiseNotificationFn {
-        HMODULE uia = GetModuleHandleW(L"UIAutomationCore.dll");
-        return uia ? reinterpret_cast<RaiseNotificationFn>(GetProcAddress(uia, "UiaRaiseNotificationEvent")) : nullptr;
-    }();
+    static const HMODULE uia = LoadLibraryW(L"UIAutomationCore.dll");
+    static const auto hostFn = uia ? reinterpret_cast<HostProviderFn>(GetProcAddress(uia, "UiaHostProviderFromHwnd")) : nullptr;
+    static const auto notifyFn = uia ? reinterpret_cast<RaiseNotificationFn>(GetProcAddress(uia, "UiaRaiseNotificationEvent")) : nullptr;
     if (hostFn == nullptr || notifyFn == nullptr) return;
 
     Microsoft::WRL::ComPtr<IUnknown> provider;

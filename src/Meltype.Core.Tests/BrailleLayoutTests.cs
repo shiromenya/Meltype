@@ -104,6 +104,31 @@ internal static class BrailleLayoutTests
         k.Press(VirtualKeys.Back); // 濁音符のみ取り消し
         Chord(k, 1, 6); // か (が ではなく か)
         Assert.Equal("あか", k.Showing);
+
+        // 数符で数字を入力したあとの BackSpace は数字を 1 文字消し、数符モードを保つ
+        k = Braille();
+        Chord(k, 3, 4, 5, 6); // 数符
+        Chord(k, 1); // 1
+        Chord(k, 1, 2); // 2
+        k.Press(VirtualKeys.Back); // 2 を消す
+        Chord(k, 1, 4); // 3 (数符が保たれているので 3 になる)
+        Assert.Equal("13", k.Showing);
+    }
+
+    [Test]
+    public static void Braille_RolloverStartsNextCellWhilePreviousKeyStillHeld()
+    {
+        var k = Braille();
+        // 1,6 (か) を押して 1 だけ離し、6 が残ったまま次の 1,2 (い) を打つ
+        k.Key(DotVks[0]); // 1
+        k.Key(DotVks[5]); // 6
+        k.Key(DotVks[0], up: true); // 「か」確定
+        k.Key(DotVks[0]); // 1
+        k.Key(DotVks[1]); // 2
+        k.Key(DotVks[5], up: true); // 前の 6 を離す (無視される)
+        k.Key(DotVks[0], up: true); // 「い」確定
+        k.Key(DotVks[1], up: true);
+        Assert.Equal("かい", k.Showing);
     }
 
     [Test]

@@ -107,15 +107,15 @@ internal sealed class BrailleLayoutEngine
 
     private int _pressed;
     private int _pendingMask;
-    private bool _waitAllUp;
     private Mode _mode;
     private bool _foreignCapital;
+    private bool _hasPendingPrefix;
 
     /// <summary>いずれかの点字キーを押したままか。</summary>
     public bool IsHolding => _pressed != 0;
 
-    /// <summary>前置符号・数符・外字符などの入力途中状態か。</summary>
-    public bool HasPrefix => _mode != Mode.None || _foreignCapital;
+    /// <summary>前置符号・数符・外字符を打った直後（まだ次の文字を出していない）か。</summary>
+    public bool HasPrefix => _hasPendingPrefix;
 
     /// <summary>指定した仮想キーが 6 点点字のキー（F/D/S/J/K/L）か。</summary>
     public static bool IsBrailleKey(int vk) => DotBit(vk) != 0;
@@ -123,10 +123,25 @@ internal sealed class BrailleLayoutEngine
     /// <summary>前置状態のみを取り消す（BackSpace 用）。取り消す状態があれば true。</summary>
     public bool CancelPrefix()
     {
-        if (!HasPrefix) return false;
+        if (!_hasPendingPrefix) return false;
+        _hasPendingPrefix = false;
+        if (_foreignCapital)
+        {
+            _foreignCapital = false;
+        }
+        else
+        {
+            _mode = Mode.None;
+        }
+        return true;
+    }
+
+    /// <summary>連続モード（数符・外字符）と前置状態をすべて解除する。</summary>
+    public void ClearMode()
+    {
         _mode = Mode.None;
         _foreignCapital = false;
-        return true;
+        _hasPendingPrefix = false;
     }
 
     /// <summary>状態を初期化する。</summary>
@@ -134,9 +149,7 @@ internal sealed class BrailleLayoutEngine
     {
         _pressed = 0;
         _pendingMask = 0;
-        _waitAllUp = false;
-        _mode = Mode.None;
-        _foreignCapital = false;
+        ClearMode();
     }
 
     /// <summary>キー押下を処理する。</summary>
@@ -147,7 +160,7 @@ internal sealed class BrailleLayoutEngine
         if ((_pressed & bit) != 0) return KanaStroke.Consumed;
 
         _pressed |= bit;
-        if (!_waitAllUp) _pendingMask |= bit;
+        _pendingMask |= bit;
         return KanaStroke.Consumed;
     }
 
@@ -159,15 +172,13 @@ internal sealed class BrailleLayoutEngine
 
         _pressed &= ~bit;
         KanaStroke result = KanaStroke.Consumed;
-        if (!_waitAllUp && _pendingMask != 0)
+        if (_pendingMask != 0)
         {
             var mask = _pendingMask;
             _pendingMask = 0;
-            _waitAllUp = _pressed != 0;
             var decoded = Decode(mask);
             if (decoded.Length > 0) result = new KanaStroke(true, 0, decoded);
         }
-        if (_pressed == 0) _waitAllUp = false;
         return result;
     }
 
@@ -175,24 +186,29 @@ internal sealed class BrailleLayoutEngine
     {
         if (_mode == Mode.Numeric)
         {
-            if (NumericMap.TryGetValue(mask, out var digit)) return digit;
-            _mode = Mode.None;
+            if (NumericMap.TryGetValue(mask, out var digit))
+            {
+                _hasPendingPrefix = false;
+                return digit;
+            }
+            ClearMode();
         }
         else if (_mode == Mode.Foreign)
         {
             if (mask == ForeignSign)
             {
-                _mode = Mode.None;
-                _foreignCapital = false;
+                ClearMode();
                 return "、";
             }
             if (mask == CapitalSign)
             {
                 _foreignCapital = true;
+                _hasPendingPrefix = true;
                 return "";
             }
             if (ForeignMap.TryGetValue(mask, out var ch))
             {
+                _hasPendingPrefix = false;
                 if (_foreignCapital)
                 {
                     _foreignCapital = false;
@@ -200,14 +216,13 @@ internal sealed class BrailleLayoutEngine
                 }
                 return ch;
             }
-            _mode = Mode.None;
-            _foreignCapital = false;
+            ClearMode();
         }
 
         if (_mode != Mode.None)
         {
             var prevMode = _mode;
-            _mode = Mode.None;
+            ClearMode();
             if (BaseKana.TryGetValue(mask, out var baseChar))
             {
                 var table = prevMode switch
@@ -225,13 +240,13 @@ internal sealed class BrailleLayoutEngine
             return "";
         }
 
-        if (mask == Dots(5)) { _mode = Mode.Dakuten; return ""; }
-        if (mask == Dots(6)) { _mode = Mode.Handakuten; return ""; }
-        if (mask == Dots(4)) { _mode = Mode.Youon; return ""; }
-        if (mask == Dots(4, 5)) { _mode = Mode.YouDakuten; return ""; }
-        if (mask == Dots(4, 6)) { _mode = Mode.YouHandakuten; return ""; }
-        if (mask == NumSign) { _mode = Mode.Numeric; return ""; }
-        if (mask == ForeignSign) { _mode = Mode.Foreign; _foreignCapital = false; return ""; }
+        if (mask == Dots(5)) { _mode = Mode.Dakuten; _hasPendingPrefix = true; return ""; }
+        if (mask == Dots(6)) { _mode = Mode.Handakuten; _hasPendingPrefix = true; return ""; }
+        if (mask == Dots(4)) { _mode = Mode.Youon; _hasPendingPrefix = true; return ""; }
+        if (mask == Dots(4, 5)) { _mode = Mode.YouDakuten; _hasPendingPrefix = true; return ""; }
+        if (mask == Dots(4, 6)) { _mode = Mode.YouHandakuten; _hasPendingPrefix = true; return ""; }
+        if (mask == NumSign) { _mode = Mode.Numeric; _hasPendingPrefix = true; return ""; }
+        if (mask == ForeignSign) { _mode = Mode.Foreign; _foreignCapital = false; _hasPendingPrefix = true; return ""; }
 
         return BaseKana.GetValueOrDefault(mask, "");
     }
