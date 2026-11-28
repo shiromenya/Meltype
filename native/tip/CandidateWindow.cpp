@@ -245,6 +245,36 @@ void PlaceWithin(int& x, int& y, int width, int height, const RECT& anchor) {
     if (x < area.left) x = area.left;
 }
 
+// スクリーンリーダーが有効なときだけ、フォーカスを奪わずに選択候補を読み上げ通知する
+void AnnounceCandidate(HWND hwnd, const std::wstring& text) {
+    if (hwnd == nullptr || text.empty()) return;
+    BOOL readerActive = FALSE;
+    if (!SystemParametersInfoW(SPI_GETSCREENREADER, 0, &readerActive, 0) || !readerActive) return;
+
+    using HostProviderFn = HRESULT(WINAPI*)(HWND, IUnknown**);
+    using RaiseNotificationFn = HRESULT(WINAPI*)(IUnknown*, int, int, BSTR, BSTR);
+    static const auto hostFn = []() -> HostProviderFn {
+        HMODULE uia = LoadLibraryW(L"UIAutomationCore.dll");
+        return uia ? reinterpret_cast<HostProviderFn>(GetProcAddress(uia, "UiaHostProviderFromHwnd")) : nullptr;
+    }();
+    static const auto notifyFn = []() -> RaiseNotificationFn {
+        HMODULE uia = GetModuleHandleW(L"UIAutomationCore.dll");
+        return uia ? reinterpret_cast<RaiseNotificationFn>(GetProcAddress(uia, "UiaRaiseNotificationEvent")) : nullptr;
+    }();
+    if (hostFn == nullptr || notifyFn == nullptr) return;
+
+    Microsoft::WRL::ComPtr<IUnknown> provider;
+    if (FAILED(hostFn(hwnd, &provider)) || !provider) return;
+    BSTR msg = SysAllocStringLen(text.c_str(), static_cast<UINT>(text.size()));
+    BSTR activity = SysAllocString(L"MeltypeCandidateSelection");
+    if (msg != nullptr && activity != nullptr) {
+        // NotificationKind_ItemAdded(0), NotificationProcessing_MostRecent(4)
+        notifyFn(provider.Get(), 0, 4, msg, activity);
+    }
+    if (msg != nullptr) SysFreeString(msg);
+    if (activity != nullptr) SysFreeString(activity);
+}
+
 }  // namespace
 
 class CandidateElement;
@@ -269,6 +299,21 @@ struct CandidateWindow::Impl {
     float scale = 1;
     float width = kMinWidth;  // DIP
     std::wstring meaningKey;
+    std::wstring lastAnnouncement;
+
+    void AnnounceSelection() {
+        if (hwnd == nullptr || view.candidates.empty() || view.selected < 0 ||
+            static_cast<size_t>(view.selected) >= view.candidates.size()) {
+            return;
+        }
+        const size_t idx = static_cast<size_t>(view.selected);
+        std::wstring text = L"候補 (" + std::to_wstring(idx + 1) + L"/" + std::to_wstring(view.candidates.size()) + L"): " + view.candidates[idx];
+        if (idx < view.notes.size() && !view.notes[idx].empty()) text += L"、" + view.notes[idx];
+        if (!view.meaning.empty()) text += L"、" + view.meaning;
+        if (text == lastAnnouncement) return;
+        lastAnnouncement = text;
+        AnnounceCandidate(hwnd, text);
+    }
 
     float SuggestionHeight() const { return view.suggestion.empty() ? 0 : kRowHeight + (view.candidates.empty() ? 0 : 5); }
     // 候補の行より上 (打ったキー・もしかして) の高さ
@@ -517,6 +562,7 @@ struct CandidateWindow::Impl {
     }
 
     void HideAll() {
+        lastAnnouncement.clear();
         if (hwnd != nullptr) {
             KillTimer(hwnd, kMeaningTimer);
             ShowWindow(hwnd, SW_HIDE);
@@ -819,6 +865,7 @@ static void Render(CandidateWindow::Impl& d, const CandidateView& view, const RE
     }
     InvalidateRect(d.hwnd, nullptr, FALSE);
     d.ScheduleMeaning();
+    d.AnnounceSelection();
 }
 
 }  // namespace meltype

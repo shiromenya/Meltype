@@ -133,6 +133,38 @@ internal static class BrailleLayoutTests
         Assert.Equal("あ", up1.Result.View?.Text);
     }
 
+    [Test]
+    public static void CandidateAnnouncement_FormatsCandidateNoteMeaningAndPrediction()
+    {
+        var candidateView = new CompositionView(
+            Text: "にほんご",
+            Candidates: ["日本語", "二本後"],
+            SelectedIndex: 0,
+            Converting: true,
+            Hint: "",
+            Notes: [CandidateNote.Zenzai, CandidateNote.None],
+            Meaning: "日本の国語");
+        Assert.Equal("候補 (1/2): 日本語、Zenzai、日本の国語", CandidateAnnouncement.Format(candidateView));
+
+        var predictionView = new CompositionView(
+            Text: "にほ",
+            Candidates: [],
+            SelectedIndex: -1,
+            Converting: false,
+            Hint: "",
+            Predictions: ["日本語", "日本"],
+            SelectedPrediction: 1);
+        Assert.Equal("予測候補 (2/2): 日本", CandidateAnnouncement.Format(predictionView));
+
+        var typingView = new CompositionView(
+            Text: "にほんご",
+            Candidates: [],
+            SelectedIndex: -1,
+            Converting: false,
+            Hint: "");
+        Assert.Equal(null, CandidateAnnouncement.Format(typingView));
+    }
+
     private sealed class BrailleEnv : IImeEnvironment
     {
         public InputMode? InputMethod => null;

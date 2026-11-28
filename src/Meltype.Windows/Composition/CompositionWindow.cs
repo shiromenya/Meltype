@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Yukishiro
 
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 using Meltype.Dictionary;
 
 namespace Meltype.Composition;
@@ -170,6 +171,7 @@ internal sealed class CompositionWindow : PopupForm
         ShowOnTop();
         Invalidate();
         UpdateMeaning(view);
+        AnnounceSelection(view);
     }
 
     /// <summary>入力位置の上に出しているときの、変換ボックスの下の端と、上に入らないときに出す位置 (入力位置の下)。</summary>
@@ -237,6 +239,7 @@ internal sealed class CompositionWindow : PopupForm
         if (Visible) return;
         _meaningTimer.Stop();
         _meaningKey = null;
+        _lastAnnouncement = null;
         _meaningPopup?.Hide();
     }
 
@@ -516,6 +519,50 @@ internal sealed class CompositionWindow : PopupForm
         back.R + (overlay.R - back.R) * overlay.A / 255,
         back.G + (overlay.G - back.G) * overlay.A / 255,
         back.B + (overlay.B - back.B) * overlay.A / 255);
+
+    private string? _lastAnnouncement;
+
+    private void AnnounceSelection(CompositionView view)
+    {
+        if (!IsHandleCreated) return;
+        var active = false;
+        if (!SystemParametersInfoW(0x0046 /* SPI_GETSCREENREADER */, 0, ref active, 0) || !active) return;
+        var text = CandidateAnnouncement.Format(view);
+        if (text is null || text == _lastAnnouncement) return;
+        _lastAnnouncement = text;
+        try
+        {
+            if (UiaHostProviderFromHwnd(Handle, out var provider) == 0 && provider is not null)
+            {
+                try
+                {
+                    // NotificationKind.ItemAdded(0), NotificationProcessing.MostRecent(4)
+                    _ = UiaRaiseNotificationEvent(provider, 0, 4, text, "MeltypeCandidateSelection");
+                }
+                finally
+                {
+                    Marshal.ReleaseComObject(provider);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or COMException)
+        {
+        }
+    }
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool SystemParametersInfoW(uint uiAction, uint uiParam, ref bool pvParam, uint fWinIni);
+
+    [DllImport("UIAutomationCore.dll", ExactSpelling = true)]
+    private static extern int UiaHostProviderFromHwnd(IntPtr hwnd, [MarshalAs(UnmanagedType.Interface)] out object? ppProvider);
+
+    [DllImport("UIAutomationCore.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
+    private static extern int UiaRaiseNotificationEvent(
+        [MarshalAs(UnmanagedType.Interface)] object provider,
+        int notificationKind,
+        int notificationProcessing,
+        string? displayString,
+        string? activityId);
 
     protected override void Dispose(bool disposing)
 
