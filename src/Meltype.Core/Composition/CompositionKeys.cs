@@ -19,7 +19,7 @@ internal static class CompositionKeys
     internal static bool Handle(CompositionState state, CompositionEnv env, KeyPress key)
     {
         (state.Shift, state.Control, state.Modifier) = (key.Shift, key.Control, key.Modifier);
-        if (!CompositionLifecycle.IsComposing(state) && !state.KanaLayout.ThumbHeld && (key.Modifier || !StartsComposition(state, env, key))) return false;
+        if (!CompositionLifecycle.IsComposing(state) && !state.KanaLayout.ThumbHeld && !state.Braille.IsHolding && (key.Modifier || !StartsComposition(state, env, key))) return false;
         state.Pressed.Add(key.Vk);
         HandleKey(state, env, new KeyEvent(key.Vk, key.Ch ?? 0, false, false, false, key.TimeMs), key.Position);
         return true;
@@ -45,7 +45,14 @@ internal static class CompositionKeys
     internal static void HandleRelease(CompositionState state, CompositionEnv env, int vk, int position)
     {
         var pressed = state.Pressed.Remove(vk);
-        if (!CompositionLifecycle.IsComposing(state) && !state.KanaLayout.ThumbHeld) return;
+        if (!CompositionLifecycle.IsComposing(state) && !state.KanaLayout.ThumbHeld && !state.Braille.IsHolding) return;
+        if (CompositionLifecycle.KanaInput(env) && !CompositionLifecycle.IsDirect(state) && env.Settings.KanaLayout == KanaLayout.Braille)
+        {
+            var brailleUp = state.Braille.Up(position);
+            if (brailleUp.Handled && (brailleUp.Kana.Length > 0 || brailleUp.RemoveLast > 0))
+                ApplyKanaStroke(state, env, brailleUp);
+            return;
+        }
         var kanaUp = state.KanaLayout.Up(position);
         // 中指NICOLA: シフトのキーを押したまま先に離した文字キーを、シフト面で打ち直す
         if (kanaUp.Stroke.Handled && state.Scene is CompositionScene.WithInput) ApplyKanaStroke(state, env, kanaUp.Stroke);
@@ -489,6 +496,19 @@ internal static class CompositionKeys
             return true;
         }
         var layout = CompositionLifecycle.KanaInput(env) && !direct ? env.Settings.KanaLayout : KanaLayout.Jis;
+        if (layout == KanaLayout.Braille)
+        {
+            if (e.Vk == VirtualKeys.Back && state.Braille.CancelPrefix()) return true;
+            var brailleStroke = state.Braille.Down(position, state.Shift);
+            if (!brailleStroke.Handled)
+            {
+                state.Braille.CancelPrefix();
+                return !state.Shift && Detection.KanaDetector.IsKanaKey(position);
+            }
+            ApplyKanaStroke(state, env, brailleStroke);
+            return true;
+        }
+        state.Braille.Reset();
         if (state.KanaLayout.Layout != layout) state.KanaLayout = new KanaLayoutEngine(layout);
         if (layout == KanaLayout.Jis) return false;
         // 親指キーは (入力していないとき・変換中も) 受け取っておき、文字に使わずに離したらもとの働き (再変換・変換・無変換) をする

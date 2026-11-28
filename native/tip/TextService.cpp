@@ -969,6 +969,7 @@ void TextService::ApplyState(const JsonValue& state, const std::string& field) {
         const int vk = key[L"vk"].Int();
         if (vk > 0 && vk < 256) next.composing.push_back(static_cast<UINT>(vk));
     }
+    next.keyReleases = capture[L"keyReleases"].Bool();
     if (next.Active() != state_.Active() || !state_.known) TipLog(L"Meltype.exe: %s", next.Active() ? L"受け持ちます" : L"受け持ちません");
     state_ = std::move(next);
     if (state_.keys != preservedFrom_) RefreshPreservedKeys();
@@ -1373,14 +1374,16 @@ STDMETHODIMP TextService::OnTestKeyUp(ITfContext*, WPARAM wParam, LPARAM lParam,
     return S_OK;
 }
 
-STDMETHODIMP TextService::OnKeyUp(ITfContext*, WPARAM wParam, LPARAM lParam, BOOL* eaten) {
+STDMETHODIMP TextService::OnKeyUp(ITfContext* context, WPARAM wParam, LPARAM lParam, BOOL* eaten) {
     // VK_KANJI は解放通知が来ない環境があるので、Alt を離したら次の操作を受け付ける。
     if (wParam == VK_MENU || wParam == VK_LMENU || wParam == VK_RMENU) {
         eatenDown_[ToggleShortcut::Hankaku] = false;
     }
-    const UINT slot = ShortcutSlot(static_cast<UINT>(wParam), lParam);
+    const UINT vk = static_cast<UINT>(wParam);
+    const UINT slot = ShortcutSlot(vk, lParam);
     *eaten = wParam < 256 && eatenDown_[slot] ? TRUE : FALSE;
     if (wParam < 256) eatenDown_[slot] = false;
+    if (*eaten && state_.keyReleases && !IsModifier(vk) && !disabled_) HandleKeyUp(context, vk, lParam);
     return S_OK;
 }
 
@@ -1414,11 +1417,13 @@ void TextService::HandleKey(ITfContext* context, UINT vk, LPARAM lParam, wchar_t
         const std::string physical = scan ? std::string(",\"physical\":{\"type\":\"Windows\",\"scan\":") + std::to_string(scan) +
                                                 ",\"extended\":" + ((lParam >> 24) & 1 ? "true" : "false") + "}"
                                           : "";
+        const bool releaseFollows = state_.keyReleases && !IsModifier(vk);
         const std::string key = std::string(",\"key\":{\"vk\":") + std::to_string(vk) + ",\"ch\":" + std::to_string(ch) + physical +
                                 ",\"shift\":" + (shift ? "true" : "false") + ",\"ctrl\":" + (control ? "true" : "false") +
                                 ",\"alt\":" + (alt ? "true" : "false") + ",\"command\":" + (command ? "true" : "false") +
                                 ((GetKeyState(VK_CAPITAL) & 1) ? ",\"capsLock\":true" : "") +
-                                (repeat ? ",\"repeat\":true" : "") + "}";
+                                (repeat ? ",\"repeat\":true" : "") +
+                                (releaseFollows ? ",\"releaseFollows\":true" : "") + "}";
         JsonValue reply;
         if (!Send("KeyPressed", field, key, reply, 800, false, listed ? &anchor : nullptr)) {
             // Meltype.exe が応答しない: 変換中の文字はそのまま確定する。打った文字はここで入れる
@@ -1470,6 +1475,31 @@ void TextService::HandleKey(ITfContext* context, UINT vk, LPARAM lParam, wchar_t
     FlushOpen();
     // Meltype.exe が使わなかったキーは、アプリに送り直す
     if (!inserted && (failed ? !modeKey : !consumed)) Reinject(vk);
+}
+
+void TextService::HandleKeyUp(ITfContext* context, UINT vk, LPARAM lParam) {
+    if (disabled_ || deactivated_ || context == nullptr) return;
+    const UINT scan = (static_cast<UINT>(lParam) >> 16) & 0xFF;
+    const std::string physical = scan ? std::string(",\"physical\":{\"type\":\"Windows\",\"scan\":") + std::to_string(scan) +
+                                            ",\"extended\":" + ((lParam >> 24) & 1 ? "true" : "false") + "}"
+                                      : "";
+    const std::string key = std::string(",\"key\":{\"vk\":") + std::to_string(vk) + physical + "}";
+    bool consumed = true;
+    const HRESULT hr = RunEditSession(context, clientId_, TF_ES_SYNC | TF_ES_READWRITE, [&](TfEditCookie ec) {
+        std::string field;
+        if (!ReadField(ec, context, field)) return S_OK;
+        if (ContextDisabled(context)) return S_OK;
+        ownEdit_ = true;
+        JsonValue reply;
+        if (Send("KeyReleased", field, key, reply, 800, true)) {
+            consumed = ApplyOutput(ec, context, reply, field);
+        }
+        return S_OK;
+    });
+    ownEdit_ = false;
+    if (FAILED(hr)) TipLog(L"キー解放の編集セッションを始められません: 0x%08X", hr);
+    FlushOpen();
+    if (!consumed) Reinject(vk);
 }
 
 void TextService::HandleAltKey(UINT vk, UINT flags) {

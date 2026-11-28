@@ -184,6 +184,9 @@ internal sealed class CompositionState
     // かな配列 (JIS かな以外。設定が変わったら作り直す。issue #1415)
     public KanaLayoutEngine KanaLayout = new(Input.KanaLayout.Jis);
 
+    // 6点点字 (パーキンス入力)
+    public readonly BrailleLayoutEngine Braille = new();
+
     /// <summary>ライブ変換の控え (<see cref="CompositionConversion.LiveClauses"/>)。入力を始めるときに空にする。</summary>
     public readonly Dictionary<string, List<(string Reading, string? Engine, string Text)>> LiveCache = new(StringComparer.Ordinal);
 

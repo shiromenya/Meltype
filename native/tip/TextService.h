@@ -41,6 +41,7 @@ struct ServerState {
     std::vector<ToggleShortcut> keys = {{0x19, 0}, {0xC0, 4}, {0xF3, 0}, {0xF4, 0}, {0xF0, 0}, {0x15, 0}, {0x20, 1}};
     // 変換中に Ctrl と一緒に押しても Meltype.exe に送るキー (ほかの Ctrl・Alt・Windows キーとの組み合わせは、確定して通す)
     std::vector<UINT> composing;
+    bool keyReleases = false;
     double rev = 0;
 };
 
@@ -113,6 +114,8 @@ private:
     bool CapturesKey(UINT vk, LPARAM lParam) const;
     // listed: capture.keys のキー (入力モードを表示する位置も送る)。repeat: 押したままの自動の繰り返し
     void HandleKey(ITfContext* context, UINT vk, LPARAM lParam, wchar_t ch, bool repeat, bool listed);
+    // ImeCapture.KeyReleases が有効なとき、受け取ったキーを離したことを本体に送る (6点点字・親指シフト用)
+    void HandleKeyUp(ITfContext* context, UINT vk, LPARAM lParam);
     // 左右の Alt (VK_LMENU / VK_RMENU) の押下・解放を本体に送る (ImeCapture.AltKeys)。キーのシンクには Alt (WM_SYSKEYDOWN) が届かないので、
     // Meltype.exe の低レベルフックが見て kAltKey で知らせる (TipServer.OnKey)。単独押しかは本体が決め、解放は Meltype.exe が送り直す
     void HandleAltKey(UINT vk, UINT flags);

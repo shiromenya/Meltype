@@ -20,6 +20,8 @@ public enum KanaLayout
     [System.ComponentModel.Description("中指NICOLA")] NakayubiNicola,
     /// <summary>TRON 配列 (親指シフト。無変換・変換が左右の親指キー)。</summary>
     [System.ComponentModel.Description("TRON 配列")] Tron,
+    /// <summary>6点点字 (パーキンス入力。F/D/S が 1/2/3 の点、J/K/L が 4/5/6 の点の同時押し)。</summary>
+    [System.ComponentModel.Description("6点点字 (パーキンス)")] Braille,
 }
 
 /// <summary>ローマ字入力のキーの配列 (issue #1415)。</summary>
@@ -124,7 +126,7 @@ internal sealed class KanaLayoutEngine(KanaLayout layout)
 
     private static string Id(IEnumerable<int> keys) => string.Join('+', keys.Order());
 
-    private readonly Table? _table = layout == KanaLayout.Jis ? null : Tables.Value[layout];
+    private readonly Table? _table = layout is KanaLayout.Jis or KanaLayout.Braille ? null : Tables.Value[layout];
 
     /// <summary>押しているキー。Emitted はそのキーで入れて、まだ打ち直していない文字の数。</summary>
     private sealed class Held(int vk, long time, int emitted)

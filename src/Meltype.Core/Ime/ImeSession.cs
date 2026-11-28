@@ -584,7 +584,7 @@ internal static class ImeSession
             PrintableAsciiExcept = direct && directEnglishWord ? EnglishWordCharacters : "",
             Shortcuts = keys.Distinct().ToList(),
             CtrlKeysWhileComposing = composingControlKeys.Select(key => new ImeShortcut(key, (int)ShortcutModifiers.Control)).ToList(),
-            KeyReleases = settings.InputStyle == InputStyle.Kana && settings.KanaLayout is KanaLayout.Nicola or KanaLayout.NakayubiNicola or KanaLayout.Tron,
+            KeyReleases = settings.InputStyle == InputStyle.Kana && settings.KanaLayout is KanaLayout.Nicola or KanaLayout.NakayubiNicola or KanaLayout.Tron or KanaLayout.Braille,
             AltKeys = settings.AltKeysSwitchKeyboard,
         };
     }

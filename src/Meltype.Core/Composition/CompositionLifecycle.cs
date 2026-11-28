@@ -14,8 +14,8 @@ internal static class CompositionLifecycle
     /// <summary>出来事の最後。入力が終わったら、押したキーを忘れる。</summary>
     internal static void EndEvent(CompositionState state)
     {
-        // 親指キーを押したままなら、離したことを受け取るまで受け取り続ける (文頭で親指キーだけを押したとき。変換ボックスは空)
-        if (IsComposing(state) || state.KanaLayout.ThumbHeld) return;
+        // 親指キー・6点点字キーを押したままなら、離したことを受け取るまで受け取り続ける
+        if (IsComposing(state) || state.KanaLayout.ThumbHeld || state.Braille.IsHolding) return;
         state.Pressed.Clear();
     }
 
@@ -206,7 +206,11 @@ internal static class CompositionLifecycle
     }
 
     /// <summary>入力を終える (確定した・取り消した)。</summary>
-    internal static void Finish(CompositionState state) => state.Scene = Idle(IsDirect(state));
+    internal static void Finish(CompositionState state)
+    {
+        state.Braille.CancelPrefix();
+        state.Scene = Idle(IsDirect(state));
+    }
 
     /// <summary>パスワード欄に移ったとき、未確定入力と前の欄の文脈を確定せずに捨てる。</summary>
     internal static void CancelPending(CompositionState state)
@@ -215,6 +219,7 @@ internal static class CompositionLifecycle
         ForgetLastCommit(state);
         state.Pressed.Clear();
         state.KanaLayout.Reset();
+        state.Braille.Reset();
         CompositionOutput.Begin(state.Out);
         CompositionOutput.Hide(state.Out);
     }
