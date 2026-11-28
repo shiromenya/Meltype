@@ -38,7 +38,7 @@ internal sealed class CharCountConversion : IUtilityConversion
 
     internal static (int Total, int NoSpace, int Lines) Count(string text)
     {
-        var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        var normalized = text.Contains('\r') ? text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n') : text;
         var total = 0;
         var noSpace = 0;
         var lines = 1;
