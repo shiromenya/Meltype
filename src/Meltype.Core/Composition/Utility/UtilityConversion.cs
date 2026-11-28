@@ -30,7 +30,9 @@ internal sealed record UtilityContext(
     Func<string?> Clipboard,
     Func<(string Title, string Artist)?> NowPlaying,
     GitHubIssueTitles? GitHubTitles,
-    Func<string?> OtherTipVersion);
+    Func<string?> OtherTipVersion,
+    string? Before = null,
+    string? Selection = null);
 
 internal enum UtilityPlacement
 {
@@ -94,6 +96,7 @@ internal static class UtilityConversions
         new ClipboardConversion(),
         new VersionConversion(),
         new KanjiPartsConversion(),
+        new CharCountConversion(),
     ];
 
     /// <summary>一致したすべての変換の候補。1 つでも Replace なら Replace、そうでなく 1 つでも Prepend なら Prepend にする。どれも一致しなければ null。</summary>
